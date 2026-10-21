@@ -9,11 +9,40 @@ The complaint form includes a free local AI suggestion for category, department,
 
 1. Open a terminal in this project folder.
 2. Run `npm install` once to install the free Express package.
-3. Run `npm start`.
+3. Run `npm start` (or `npm run dev` to auto-restart the server when a file changes).
 4. Open `http://localhost:3000` for students or `http://localhost:3000/admin.html` for the admin dashboard.
+
+If port 3000 is already taken, start on a different port instead:
+
+- Windows PowerShell: `$env:PORT='3001'; npm start`
+- macOS / Linux: `PORT=3001 npm start`
 
 The local SQLite database file is created automatically in `data/smart-campus.sqlite`. Photo uploads are enabled locally, but disabled by default in production unless `ENABLE_PHOTO_UPLOADS=true` is explicitly set.
 Complaints previously saved in a browser's local storage are not copied into the new database automatically.
+
+## Interface and features
+
+The student page and the admin dashboard share one design system (`ui.css` + `theme.js`) so both look and behave the same.
+
+Student page (`index.html`):
+
+- Dark mode toggle with system-preference detection; the choice is remembered in the browser.
+- Animated aurora background, glass surfaces, gradient buttons with a click ripple, and scroll-reveal animations. `prefers-reduced-motion` is respected.
+- Live "Campus Snapshot" strip (total complaints, resolution rate, average resolution time, top category) that refreshes every 60 seconds.
+- "My Complaints" list stored only in the browser's local storage, with one-click tracking and a copy-ID button. It is never uploaded to the server.
+- Character counter and a live priority estimate while you type the description.
+- Structured AI suggestion card (category, department, priority, confidence) with an emergency warning banner.
+- Toast notifications instead of browser `alert()` popups, plus a printable complaint receipt with a copy-ID action.
+- Full status history timeline on the tracked complaint.
+
+Admin dashboard (`admin.html`):
+
+- Same dark mode, glass cards, animated counters and toasts.
+- Summary cards for total, submitted, in progress, resolved, resolution rate, and average resolution time.
+- Donut chart of the category mix, animated category bars, and the existing AI safety / recurring-issue panels.
+- **Export CSV** button that downloads exactly the rows currently visible after filtering and sorting.
+- **Auto refresh** switch (every 15 seconds) with a "last updated" timestamp.
+- Search, filters, sorting, status updates, category correction, admin remarks and feedback viewing all work as before.
 
 ## Local demo admin login
 
@@ -27,11 +56,14 @@ These credentials are for local testing only. The login page does not display th
 - `POST /api/ai/suggest` — suggest a complaint category, department, and priority from its description
 - `POST /api/complaints` — create a complaint
 - `POST /api/complaints/:complaintId/track` — check tracking details using the complaint ID and roll number; private student details are not returned
+- `GET /api/stats` — public aggregate counters (total, by status, by priority, resolution rate, average resolution hours, average feedback rating, top categories/departments/buildings). No student data is returned
 - `PATCH /api/complaints/:complaintId/feedback` — submit feedback after resolution
 - `POST /api/admin/login` — sign in as admin
 - `GET /api/admin/complaints` — list complaints (admin session required)
 - `PATCH /api/admin/complaints/:complaintId` — update status or admin remark
 - The same admin complaint endpoint accepts `categoryCode` to correct a complaint's category and responsible department.
+
+Every status change is recorded on the complaint as a `statusHistory` entry (status, timestamp, note). Setting a complaint to `Resolved` stamps `resolvedAt`; moving it back to another status clears that stamp, which is what the resolution-rate and average-resolution-time figures are computed from.
 
 Run `npm test` to check the local API and database flow.
 
@@ -46,6 +78,38 @@ For a Render deployment, use the Free web service plan, the Node runtime, build 
 - `ADMIN_USERNAME` = your chosen admin login name
 - `ADMIN_PASSWORD` = a unique password of at least 12 characters
 - `ENABLE_PHOTO_UPLOADS` = `false` (or leave unset)
+
+Alternatively, `render.yaml` in this repository is a Render Blueprint for the web service (health check, `NODE_ENV`, Node version, and the required environment variables). Deploy it with **New → Blueprint** and paste your existing `DATABASE_URL` when prompted. If you prefer Render to create and wire the database for you, the commented-out `databases:` block at the bottom of `render.yaml` does that automatically.
+
+### Fixing a failed deploy (`password authentication failed for user "postgres"`)
+
+This error means the password inside `DATABASE_URL` does not match the database. The app never touches the password, so it is always an environment-variable problem:
+
+1. Open the database provider dashboard (Supabase, Render, …) and copy the connection string again.
+2. Make sure no placeholder is left in it. Supabase strings start as `postgres://postgres:[YOUR-PASSWORD]@…` and the `[YOUR-PASSWORD]` part must be replaced with the real database password. If the password contains `@`, `:`, `/`, `#`, or `?`, it must be URL-encoded (for example `@` → `%40`).
+3. Paste the full string into `DATABASE_URL` on the hosting provider (Render → Environment).
+4. Save and run **Manual Deploy → Clear build cache & deploy**.
+5. If the database was recreated, copy the new connection string — the old password stops working.
+
+For Supabase on Render, use the **Session Pooler** connection string from **Project Settings → Database → Connection pooling**. If the password contains special characters, reset it in Supabase and use a simpler one.
+
+The server prints a readable diagnosis on startup, for example:
+
+```
+Smart Campus could not connect to PostgreSQL.
+
+  host:     aws-0-ap-south-1.pooler.supabase.com:5432
+  database: postgres
+  user:     postgres.abcdefghijklmnop
+  error:    password authentication failed for user "postgres" (code 28P01)
+
+How to fix it:
+
+  The password or username in DATABASE_URL is wrong.
+  ...
+```
+
+It also retries transient connection failures (database still starting, DNS not ready) up to five times with backoff before giving up, which avoids most "database was not ready" deploy failures.
 
 The backend uses the database connection string server-side; do not place it in browser JavaScript. Public complaint, tracking, AI, and admin-login requests have basic per-IP rate limits. Photo uploads are disabled in production by default; keep them off until a separate storage plan is set up. The Render Free web service sleeps after inactivity, and the Supabase Free project may pause after a week with little activity. Free plans do not include database backup downloads, so periodically export a backup manually. Review both providers' current limits before sharing a public URL.
 

@@ -2,6 +2,21 @@
 // SMART CAMPUS - STUDENT PAGE
 // ==========================================
 
+const HISTORY_KEY = "sc-complaint-history";
+const HISTORY_LIMIT = 12;
+
+function ui() {
+    return window.SmartCampusUI || {};
+}
+
+function notify(message, type) {
+    if (ui().toast) {
+        ui().toast(message, type);
+        return;
+    }
+    alert(message);
+}
+
 async function requestApi(url, options = {}) {
     const response = await fetch(url, {
         ...options,
@@ -26,11 +41,18 @@ async function requestApi(url, options = {}) {
 
 document.addEventListener("DOMContentLoaded", function () {
 
+    if (ui().init) {
+        ui().init();
+    }
+
     setupOtherOptions();
     setupAiSuggestion();
     setupPhotoUploadAvailability();
+    setupDescriptionMeta();
     setupComplaintForm();
     setupTracking();
+    setupStats();
+    setupHistory();
 
 });
 
@@ -57,6 +79,317 @@ async function setupPhotoUploadAvailability() {
             "Photo upload availability could not be checked, so uploads are disabled.";
         help.hidden = true;
     }
+}
+
+
+// ==========================================
+// DESCRIPTION META (CHAR COUNT + PRIORITY)
+// ==========================================
+
+function setupDescriptionMeta() {
+    const description = document.getElementById("description");
+    const charCount = document.getElementById("charCount");
+    const preview = document.getElementById("priorityPreview");
+
+    if (!description) {
+        return;
+    }
+
+    function update() {
+        const text = description.value.trim();
+        const length = description.value.length;
+
+        if (charCount) {
+            charCount.textContent = length + " / 5000";
+        }
+
+        if (preview) {
+            const priority = text ? detectPriority(text, "") : "Low";
+            preview.setAttribute("data-priority", priority);
+            preview.innerHTML = "Priority: <strong></strong>";
+            preview.querySelector("strong").textContent = priority;
+        }
+    }
+
+    description.addEventListener("input", update);
+    update();
+}
+
+
+// ==========================================
+// CAMPUS STATS
+// ==========================================
+
+function setupStats() {
+    const grid = document.getElementById("statsGrid");
+    const updated = document.getElementById("statsUpdated");
+
+    if (!grid) {
+        return;
+    }
+
+    loadStats();
+
+    window.setTimeout(loadStats, 60000);
+}
+
+async function loadStats() {
+    const grid = document.getElementById("statsGrid");
+    const updated = document.getElementById("statsUpdated");
+
+    if (!grid) {
+        return;
+    }
+
+    try {
+        const stats = await requestApi("/api/stats");
+        renderStats(stats, grid);
+
+        if (updated) {
+            updated.textContent = "Updated " + (ui().timeAgo ? ui().timeAgo(stats.generatedAt) : "just now");
+        }
+    } catch (error) {
+        console.error(error);
+        grid.innerHTML = `
+            <div class="empty-state">
+                <span>📡</span>
+                Campus statistics are unavailable right now.
+            </div>
+        `;
+        if (updated) {
+            updated.textContent = "Unavailable";
+        }
+    }
+}
+
+function renderStats(stats, grid) {
+    const averageHours = stats.averageResolutionHours;
+
+    const tiles = [
+        {
+            label: "Total Complaints",
+            value: stats.total,
+            note: stats.byStatus
+                ? stats.byStatus.Submitted + " awaiting action"
+                : ""
+        },
+        {
+            label: "Resolution Rate",
+            value: stats.resolutionRate,
+            suffix: "%",
+            note: stats.byStatus ? stats.byStatus.Resolved + " resolved" : ""
+        },
+        {
+            label: "Avg Resolution",
+            value: averageHours === null || averageHours === undefined ? "—" : averageHours,
+            decimals: averageHours === null || averageHours === undefined ? 0 : 1,
+            suffix: averageHours === null || averageHours === undefined ? "" : " hrs",
+            note: averageHours === null || averageHours === undefined
+                ? "No resolved complaints yet"
+                : "From submission to closure"
+        },
+        {
+            label: "Top Category",
+            value: stats.topCategories && stats.topCategories[0]
+                ? stats.topCategories[0].name
+                : "—",
+            text: true,
+            note: stats.topCategories && stats.topCategories[0]
+                ? stats.topCategories[0].count + " complaint(s)"
+                : "Nothing reported yet"
+        }
+    ];
+
+    grid.innerHTML = tiles.map(function (tile) {
+        if (tile.text) {
+            return `
+                <div class="stat-tile">
+                    <div class="stat-tile-label">${safe(tile.label)}</div>
+                    <div class="stat-tile-value stat-tile-value-text">${safe(tile.value)}</div>
+                    <div class="stat-tile-note">${safe(tile.note)}</div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="stat-tile">
+                <div class="stat-tile-label">${safe(tile.label)}</div>
+                <div
+                    class="stat-tile-value"
+                    data-count-to="${Number(tile.value) || 0}"
+                    data-count-decimals="${tile.decimals || 0}"
+                    data-count-suffix="${safe(tile.suffix || "")}"
+                >0</div>
+                <div class="stat-tile-note">${safe(tile.note)}</div>
+            </div>
+        `;
+    }).join("");
+
+    if (ui().animateNumber) {
+        grid.querySelectorAll("[data-count-to]").forEach(function (element) {
+            ui().animateNumber(element, element.getAttribute("data-count-to"), {
+                decimals: Number(element.getAttribute("data-count-decimals") || 0),
+                suffix: element.getAttribute("data-count-suffix") || ""
+            });
+        });
+    }
+}
+
+
+// ==========================================
+// MY COMPLAINTS (LOCAL HISTORY)
+// ==========================================
+
+function readHistory() {
+    try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function writeHistory(items) {
+    try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, HISTORY_LIMIT)));
+    } catch (error) {
+        /* storage is unavailable, history stays for this page only */
+    }
+}
+
+function addToHistory(complaint) {
+    const items = readHistory().filter(function (item) {
+        return item.complaintId !== complaint.complaintId;
+    });
+
+    items.unshift({
+        complaintId: complaint.complaintId,
+        rollNumber: complaint.rollNumber,
+        category: complaint.category,
+        building: complaint.building,
+        priority: complaint.priority,
+        status: complaint.status,
+        createdAt: complaint.createdAt || Date.now()
+    });
+
+    writeHistory(items);
+}
+
+function setupHistory() {
+    const list = document.getElementById("myComplaintsList");
+    const clearButton = document.getElementById("clearHistoryButton");
+
+    if (!list) {
+        return;
+    }
+
+    renderHistory();
+
+    if (clearButton) {
+        clearButton.addEventListener("click", function () {
+            const items = readHistory();
+
+            if (!items.length) {
+                notify("There is no local history to clear.", "info");
+                return;
+            }
+
+            writeHistory([]);
+            renderHistory();
+            notify("Local complaint history cleared.", "success");
+        });
+    }
+}
+
+function renderHistory() {
+    const list = document.getElementById("myComplaintsList");
+
+    if (!list) {
+        return;
+    }
+
+    const items = readHistory();
+
+    if (!items.length) {
+        list.innerHTML = `
+            <div class="empty-state">
+                <span>🗂️</span>
+                Complaints you submit from this browser will appear here for quick tracking.
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = items.map(function (item) {
+        return `
+            <div class="history-item">
+                <div class="history-item-main">
+                    <div class="history-item-id">${safe(item.complaintId)}</div>
+                    <div class="history-item-meta">
+                        ${safe(item.category || "Complaint")}
+                        · ${safe(item.building || "Location not provided")}
+                        · ${safe(item.priority || "Low")}
+                    </div>
+                </div>
+                <div class="history-item-actions">
+                    <button
+                        type="button"
+                        class="icon-button"
+                        title="Track this complaint"
+                        data-history-track="${safe(item.complaintId)}"
+                    >🔎</button>
+                    <button
+                        type="button"
+                        class="icon-button"
+                        title="Copy complaint ID"
+                        data-history-copy="${safe(item.complaintId)}"
+                    >📋</button>
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    list.querySelectorAll("[data-history-track]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            trackHistoryItem(button.getAttribute("data-history-track"));
+        });
+    });
+
+    list.querySelectorAll("[data-history-copy]").forEach(function (button) {
+        button.addEventListener("click", async function () {
+            const id = button.getAttribute("data-history-copy");
+            const copied = ui().copy ? await ui().copy(id) : false;
+            notify(
+                copied ? "Complaint ID copied: " + id : "Could not copy automatically.",
+                copied ? "success" : "warning"
+            );
+        });
+    });
+}
+
+function trackHistoryItem(complaintId) {
+    const items = readHistory();
+    const match = items.find(function (item) {
+        return item.complaintId === complaintId;
+    });
+
+    const idInput = document.getElementById("trackingId");
+    const rollInput = document.getElementById("trackingRollNumber");
+
+    if (idInput) {
+        idInput.value = complaintId;
+    }
+    if (rollInput && match && match.rollNumber) {
+        rollInput.value = match.rollNumber;
+    }
+
+    const section = document.getElementById("trackingSection");
+    if (section) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    trackComplaint();
 }
 
 
@@ -133,7 +466,7 @@ function setupAiSuggestion() {
         }
 
         button.disabled = true;
-        button.textContent = "Checking complaint...";
+        button.innerHTML = '<span class="ai-sparkle">✦</span> Analysing complaint…';
         result.hidden = true;
 
         try {
@@ -142,24 +475,7 @@ function setupAiSuggestion() {
                 body: JSON.stringify({ description: text })
             });
 
-            result.textContent = currentSuggestion.needsReview
-                ? `AI is not confident enough to choose a category (${currentSuggestion.confidence}% confidence). Please choose a category manually. `
-                : `AI category: ${currentSuggestion.category} ` +
-                  `(${currentSuggestion.confidence}% confidence). ` +
-                  `Suggested team: ${currentSuggestion.department}. `;
-            result.textContent +=
-                `Priority: ${currentSuggestion.priority}. ` +
-                `Quick summary: ${currentSuggestion.summary} ` +
-                (
-                    currentSuggestion.needsReview
-                        ? ""
-                        : currentSuggestion.reason
-                );
-
-            if (currentSuggestion.emergency) {
-                result.textContent +=
-                    " This is only an AI warning; contact campus emergency staff directly if anyone is in immediate danger.";
-            }
+            result.innerHTML = renderAiSuggestion(currentSuggestion);
 
             const applyButton = document.createElement("button");
             applyButton.type = "button";
@@ -183,11 +499,118 @@ function setupAiSuggestion() {
             console.error(error);
             result.textContent = `AI suggestion is unavailable: ${error.message}`;
             result.hidden = false;
+            notify("AI suggestion is unavailable right now.", "error");
         } finally {
             button.disabled = false;
-            button.textContent = "Get free AI suggestion";
+            button.innerHTML = '<span class="ai-sparkle">✦</span> Get free AI suggestion';
         }
     });
+
+}
+
+
+// ==========================================
+// AI SUGGESTION RENDERER
+// ==========================================
+
+function renderAiSuggestion(
+    suggestion
+) {
+
+    const confidence = Number(
+        suggestion.confidence || 0
+    );
+
+    const confidenceTone =
+        confidence >= 70
+            ? "good"
+            : confidence >= 35
+                ? "mid"
+                : "low";
+
+    const rows = [
+        {
+            label: "Category",
+            value: suggestion.needsReview
+                ? "Choose manually"
+                : suggestion.category
+        },
+        {
+            label: "Department",
+            value: suggestion.needsReview
+                ? "—"
+                : suggestion.department
+        },
+        {
+            label: "Priority",
+            value: suggestion.priority
+        },
+        {
+            label: "Confidence",
+            value: confidence + "%"
+        }
+    ];
+
+    return `
+
+        <div class="ai-suggestion-head">
+
+            <strong>
+                ✦ Local AI suggestion
+            </strong>
+
+            <span class="ai-confidence ai-confidence-${confidenceTone}">
+                ${confidence}% confidence
+            </span>
+
+        </div>
+
+
+        <div class="ai-suggestion-grid">
+
+            ${rows.map(function (row) {
+                return `
+                    <div class="ai-suggestion-item">
+                        <span>${safe(row.label)}</span>
+                        <strong>${safe(row.value)}</strong>
+                    </div>
+                `;
+            }).join("")}
+
+        </div>
+
+
+        <p class="ai-suggestion-summary">
+            <strong>Summary:</strong> ${safe(suggestion.summary)}
+        </p>
+
+        ${
+            suggestion.needsReview
+                ? `
+                    <p class="ai-suggestion-note">
+                        The AI is not confident enough to pick a category.
+                        Please choose one manually from the dropdown.
+                    </p>
+                `
+                : `
+                    <p class="ai-suggestion-note">
+                        ${safe(suggestion.reason)}
+                    </p>
+                `
+        }
+
+        ${
+            suggestion.emergency
+                ? `
+                    <p class="ai-suggestion-alert">
+                        ⚠ This is only an AI warning. Contact campus emergency
+                        staff directly if anyone is in immediate danger.
+                    </p>
+                `
+                : ""
+        }
+
+    `;
 
 }
 
@@ -360,7 +783,7 @@ function setupComplaintForm() {
                 !description
             ) {
 
-                alert(
+                notify(
                     "Please fill all required fields."
                 );
 
@@ -374,7 +797,7 @@ function setupComplaintForm() {
                 !customCategory
             ) {
 
-                alert(
+                notify(
                     "Please enter your custom complaint category."
                 );
 
@@ -388,7 +811,7 @@ function setupComplaintForm() {
                 !customBuilding
             ) {
 
-                alert(
+                notify(
                     "Please enter your custom building / section."
                 );
 
@@ -402,7 +825,7 @@ function setupComplaintForm() {
                 !customFloor
             ) {
 
-                alert(
+                notify(
                     "Please enter your custom floor."
                 );
 
@@ -429,7 +852,7 @@ function setupComplaintForm() {
                     !file.type.startsWith("image/")
                 ) {
 
-                    alert(
+                    notify(
                         "Please select a valid image file."
                     );
 
@@ -453,7 +876,7 @@ function setupComplaintForm() {
 
                     console.error(error);
 
-                    alert(
+                    notify(
                         "Photo could not be processed."
                     );
 
@@ -554,6 +977,16 @@ function setupComplaintForm() {
             };
 
             let complaint;
+            const submitButton =
+                document.getElementById(
+                    "submitComplaintButton"
+                );
+
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = "Submitting…";
+            }
+
             try {
                 complaint = await requestApi(
                     "/api/complaints",
@@ -564,8 +997,17 @@ function setupComplaintForm() {
                 );
             } catch (error) {
                 console.error(error);
-                alert(`Complaint could not be submitted: ${error.message}`);
+                notify(`Complaint could not be submitted: ${error.message}`, "error");
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = "Submit Complaint";
+                }
                 return;
+            }
+
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = "Submit Complaint";
             }
 
 
@@ -575,29 +1017,44 @@ function setupComplaintForm() {
             resetOtherInputs();
 
 
-            alert(
-                "Complaint submitted successfully!\n\n" +
-                "Complaint ID: " +
+            addToHistory(complaint);
+            renderHistory();
+
+
+            notify(
+                "Complaint submitted — ID " +
                 complaint.complaintId +
-                "\nPriority: " +
+                " (" +
                 complaint.priority +
-                "\nDepartment: " +
+                " priority, routed to " +
                 complaint.department +
-                (
-                    complaint.aiAssessment &&
-                    complaint.aiAssessment.similarComplaintsCount > 0
-                        ? "\nAI found " +
-                          complaint.aiAssessment.similarComplaintsCount +
-                          " similar recent complaint(s) from this building and category. Admin will review the pattern."
-                        : ""
-                ) +
-                (
-                    complaint.aiAssessment &&
-                    complaint.aiAssessment.emergency
-                        ? "\nAI safety alert: An administrator will review this complaint."
-                        : ""
-                )
+                ").",
+                "success"
             );
+
+
+            if (
+                complaint.aiAssessment &&
+                complaint.aiAssessment.similarComplaintsCount > 0
+            ) {
+                notify(
+                    "AI found " +
+                    complaint.aiAssessment.similarComplaintsCount +
+                    " similar recent complaint(s) from this building and category. An admin will review the pattern.",
+                    "warning"
+                );
+            }
+
+            if (
+                complaint.aiAssessment &&
+                complaint.aiAssessment.emergency
+            ) {
+                notify(
+                    "AI safety alert: an administrator will review this complaint. Contact campus emergency staff if anyone is in immediate danger.",
+                    "warning",
+                    8000
+                );
+            }
 
 
             showComplaintReceipt(
@@ -1109,6 +1566,12 @@ async function trackComplaint() {
         rollInput.value.trim();
 
 
+    const trackButton =
+        document.getElementById(
+            "trackButton"
+        );
+
+
     if (!id || !rollNumber) {
 
         result.innerHTML = `
@@ -1117,10 +1580,17 @@ async function trackComplaint() {
             </div>
         `;
 
+        notify("Enter both the complaint ID and your roll number.", "warning");
+
         return;
 
     }
 
+
+    if (trackButton) {
+        trackButton.disabled = true;
+        trackButton.textContent = "Checking…";
+    }
 
     try {
         const complaint = await requestApi(
@@ -1139,6 +1609,7 @@ async function trackComplaint() {
                     <p>Please check your Complaint ID and try again.</p>
                 </div>
             `;
+            notify("Complaint not found. Check the ID and roll number.", "error");
             return;
         }
 
@@ -1150,6 +1621,12 @@ async function trackComplaint() {
                 <p>Please make sure the Smart Campus server is running.</p>
             </div>
         `;
+        notify("Could not check the complaint. Is the server running?", "error");
+    } finally {
+        if (trackButton) {
+            trackButton.disabled = false;
+            trackButton.textContent = "Track Complaint";
+        }
     }
 
 }
@@ -1204,11 +1681,22 @@ function renderTrackingResult(
 
                 </div>
 
-                <span class="status-badge ${statusClass}">
-                    ${safe(
-                        complaint.status
-                    )}
-                </span>
+                <div class="tracking-header-actions">
+
+                    <span class="status-badge ${statusClass}">
+                        ${safe(
+                            complaint.status
+                        )}
+                    </span>
+
+                    <button
+                        type="button"
+                        class="icon-button"
+                        id="copyComplaintIdButton"
+                        title="Copy complaint ID"
+                    >📋</button>
+
+                </div>
 
             </div>
 
@@ -1356,15 +1844,108 @@ function renderTrackingResult(
                     : ""
             }
 
+
+            ${createStatusHistorySection(complaint)}
+
         </div>
 
     `;
+
+
+    const copyButton =
+        document.getElementById(
+            "copyComplaintIdButton"
+        );
+
+    if (copyButton) {
+        copyButton.addEventListener(
+            "click",
+            async function () {
+                const copied =
+                    ui().copy
+                        ? await ui().copy(
+                            complaint.complaintId
+                        )
+                        : false;
+                notify(
+                    copied
+                        ? "Complaint ID copied: " +
+                          complaint.complaintId
+                        : "Could not copy automatically.",
+                    copied ? "success" : "warning"
+                );
+            }
+        );
+    }
 
 
     setupFeedback(
         complaint.complaintId,
         rollNumber
     );
+
+}
+
+
+// ==========================================
+// STATUS HISTORY
+// ==========================================
+
+function createStatusHistorySection(
+    complaint
+) {
+
+    const history =
+        Array.isArray(complaint.statusHistory)
+            ? complaint.statusHistory
+            : [];
+
+    if (!history.length) {
+        return "";
+    }
+
+
+    return `
+
+        <div class="tracking-detail" style="margin-top:18px;">
+
+            <span>
+                Status History
+            </span>
+
+            <div class="activity-list">
+
+                ${history
+                    .slice()
+                    .reverse()
+                    .map(function (entry) {
+                        return `
+                            <div class="activity-item">
+                                <time>
+                                    ${safe(
+                                        ui().formatDateTime
+                                            ? ui().formatDateTime(entry.at)
+                                            : entry.at
+                                    )}
+                                </time>
+                                <strong>
+                                    ${safe(entry.status)}
+                                </strong>
+                                ${
+                                    entry.note
+                                        ? `<p>${safe(entry.note)}</p>`
+                                        : ""
+                                }
+                            </div>
+                        `;
+                    })
+                    .join("")}
+
+            </div>
+
+        </div>
+
+    `;
 
 }
 
@@ -1595,7 +2176,7 @@ function setupFeedback(
                     selectedRating < 1
                 ) {
 
-                    alert(
+                    notify(
                         "Please select a rating."
                     );
 
@@ -1625,12 +2206,12 @@ function setupFeedback(
                     );
                 } catch (error) {
                     console.error(error);
-                    alert(`Feedback could not be submitted: ${error.message}`);
+                    notify(`Feedback could not be submitted: ${error.message}`);
                     return;
                 }
 
 
-                alert(
+                notify(
                     "Thank you for your feedback."
                 );
 
@@ -1686,6 +2267,10 @@ function showComplaintReceipt(
 
             <div class="receipt-title">
 
+                <div class="receipt-success-icon">
+                    ✅
+                </div>
+
                 <h2>
                     Complaint Submitted Successfully
                 </h2>
@@ -1700,7 +2285,7 @@ function showComplaintReceipt(
             <div class="receipt-grid">
 
 
-                <div class="receipt-item">
+                <div class="receipt-item highlight">
 
                     <span class="receipt-label">
                         Complaint ID
@@ -1942,6 +2527,15 @@ function showComplaintReceipt(
                 <button
                     type="button"
                     class="close-button"
+                    id="copyReceiptIdButton"
+                >
+                    Copy ID
+                </button>
+
+
+                <button
+                    type="button"
+                    class="close-button"
                     id="closeReceiptButton"
                 >
                     Close
@@ -1956,6 +2550,28 @@ function showComplaintReceipt(
 
     document.body.appendChild(
         overlay
+    );
+
+
+    document.getElementById(
+        "copyReceiptIdButton"
+    ).addEventListener(
+        "click",
+        async function () {
+            const copied =
+                ui().copy
+                    ? await ui().copy(
+                        complaint.complaintId
+                    )
+                    : false;
+            notify(
+                copied
+                    ? "Complaint ID copied: " +
+                      complaint.complaintId
+                    : "Could not copy automatically.",
+                copied ? "success" : "warning"
+            );
+        }
     );
 
 
@@ -2004,7 +2620,7 @@ function printComplaintReceipt(
 
     if (!printWindow) {
 
-        alert(
+        notify(
             "Please allow pop-ups to print the receipt."
         );
 

@@ -1,0 +1,49 @@
+# Render Blueprint for Smart Campus
+#
+# Deploy with: Render Dashboard -> New -> Blueprint -> pick this repository.
+#
+# DATABASE_URL is a secret you paste in the first deploy screen, because the
+# recommended setup uses a Supabase (or Neon/Render) PostgreSQL database that
+# already exists. This avoids a database password drifting out of sync.
+#
+# If you would rather let Render create and wire the database automatically,
+# delete the `DATABASE_URL` envVar below and uncomment the `databases:` block
+# at the bottom of this file. Note that Render's free PostgreSQL plan expires
+# after 30 days.
+
+services:
+  - type: web
+    name: smart-campus
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ENABLE_PHOTO_UPLOADS
+        value: "false"
+
+# --- Optional: let Render create the database -------------------------------
+#
+# databases:
+#   - name: smart-campus-db
+#     databaseName: smart_campus
+#     user: smart_campus
+#     plan: free
+#
+# Then replace the `DATABASE_URL` envVar above with:
+#
+#       - key: DATABASE_URL
+#         fromDatabase:
+#           name: smart-campus-db
+#           property: connectionString

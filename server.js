@@ -1,9 +1,20 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { DatabaseSync } = require("node:sqlite");
 const express = require("express");
 const { Pool } = require("pg");
+
+// node:sqlite is only needed for local use. Loading it lazily keeps
+// PostgreSQL-only deployments working on Node builds without that module.
+let SqliteDatabase = null;
+
+function loadSqlite() {
+    if (!SqliteDatabase) {
+        ({ DatabaseSync: SqliteDatabase } = require("node:sqlite"));
+    }
+
+    return SqliteDatabase;
+}
 
 const PORT = Number(process.env.PORT) || 3000;
 const DATABASE_PATH =
@@ -584,6 +595,16 @@ function getPublicTrackingDetails(complaint) {
         roomNumber: complaint.roomNumber,
         status: complaint.status,
         date: complaint.date,
+        createdAt: complaint.createdAt || null,
+        resolvedAt: complaint.resolvedAt || null,
+        remarkUpdatedAt: complaint.remarkUpdatedAt || null,
+        statusHistory: Array.isArray(complaint.statusHistory)
+            ? complaint.statusHistory.map((entry) => ({
+                status: entry.status,
+                at: entry.at,
+                note: entry.note || ""
+            }))
+            : [],
         adminRemark: complaint.adminRemark,
         feedbackRating: complaint.feedbackRating,
         feedbackComment: complaint.feedbackComment
@@ -624,6 +645,219 @@ function createRateLimiter(maxRequests, windowMs, message) {
     };
 }
 
+
+// ==========================================
+// DATABASE DIAGNOSTICS
+// ==========================================
+
+const TRANSIENT_DATABASE_CODES = new Set([
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EHOSTUNREACH",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "57P03" // PostgreSQL: the database system is starting up
+]);
+
+function isTransientDatabaseError(error) {
+    const normalized = normalizeDatabaseError(error);
+
+    return Boolean(
+        normalized &&
+        TRANSIENT_DATABASE_CODES.has(normalized.code)
+    );
+}
+
+
+function describeDatabaseUrl(databaseUrl) {
+    try {
+        const parsed = new URL(databaseUrl);
+
+        return {
+            host: parsed.hostname || "(missing host)",
+            port: parsed.port || "5432",
+            database:
+                (parsed.pathname || "")
+                    .replace(/^\//, "") || "(default)",
+            username: decodeURIComponent(
+                parsed.username || ""
+            )
+        };
+    } catch (error) {
+        return {
+            host: "(DATABASE_URL is not a valid URL)",
+            port: "",
+            database: "",
+            username: ""
+        };
+    }
+}
+
+
+function normalizeDatabaseError(error) {
+    if (
+        error &&
+        error.name === "AggregateError" &&
+        Array.isArray(error.errors) &&
+        error.errors.length
+    ) {
+        const inner =
+            error.errors.find((item) => item && item.code) ||
+            error.errors[0];
+        const normalized = new Error(
+            inner.message || error.message
+        );
+
+        normalized.code = inner.code || error.code;
+        normalized.cause = inner;
+
+        return normalized;
+    }
+
+    return error;
+}
+
+
+function explainDatabaseError(rawError, databaseUrl) {
+    const error = normalizeDatabaseError(rawError);
+    const info = describeDatabaseUrl(databaseUrl);
+    const code = error && error.code ? ` (code ${error.code})` : "";
+    const message =
+        (error && error.message) || String(error);
+
+    const lines = [];
+
+    lines.push("Smart Campus could not connect to PostgreSQL.");
+    lines.push("");
+    lines.push(`  host:     ${info.host}:${info.port}`);
+    lines.push(`  database: ${info.database}`);
+    lines.push(`  user:     ${info.username || "(none)"}`);
+    lines.push(`  error:    ${message}${code}`);
+    lines.push("");
+    lines.push("How to fix it:");
+
+    if (error && (error.code === "28P01" || error.code === "28000")) {
+        lines.push("");
+        lines.push("  The password or username in DATABASE_URL is wrong.");
+        lines.push("  1. Open your database provider (Render, Supabase, Neon, ...).");
+        lines.push("  2. Copy the connection string again, including the password.");
+        lines.push("     A copied string may still contain a placeholder such as");
+        lines.push("     \"[YOUR-PASSWORD]\" - replace it with the real password.");
+        lines.push("  3. Paste it into the DATABASE_URL environment variable.");
+        lines.push("  4. Redeploy the service.");
+        lines.push("");
+        lines.push("  If you use Render, open the Postgres instance -> Connect and");
+        lines.push("  copy the \"Internal Database URL\" (not the External one) when the");
+        lines.push("  web service runs on Render as well.");
+    } else if (error && error.code === "3D000") {
+        lines.push("");
+        lines.push("  The database named in DATABASE_URL does not exist.");
+        lines.push("  Create it, or correct the name at the end of the URL.");
+    } else if (error && error.code === "ENOTFOUND") {
+        lines.push("");
+        lines.push("  The database host could not be resolved.");
+        lines.push("  Check DATABASE_URL. Use the Internal URL when the web service and");
+        lines.push("  the database both run on Render, and the External URL from your");
+        lines.push("  own machine.");
+    } else if (error && error.code === "ECONNREFUSED") {
+        lines.push("");
+        lines.push("  The host answered but nothing is accepting connections on that");
+        lines.push("  port. Check the host and port in DATABASE_URL, and make sure the");
+        lines.push("  database is running (not paused or still provisioning).");
+    } else if (error && error.code === "57P03") {
+        lines.push("");
+        lines.push("  The database is still starting up. Wait until it shows");
+        lines.push("  \"Available\", then redeploy.");
+    } else if (
+        error &&
+        error.code === "SELF_SIGNED_CERT_IN_CHAIN"
+    ) {
+        lines.push("");
+        lines.push("  The database requires SSL with its own certificate.");
+        lines.push("  Add ?sslmode=require to the end of DATABASE_URL.");
+    } else {
+        lines.push("");
+        lines.push("  Copy the database connection string into the DATABASE_URL");
+        lines.push("  environment variable, then redeploy.");
+    }
+
+    if (
+        info.host === "localhost" ||
+        info.host === "127.0.0.1" ||
+        info.host === "::1"
+    ) {
+        lines.push("");
+        lines.push("  Note: DATABASE_URL points to localhost. A hosted service cannot");
+        lines.push("  reach your local machine, so use the hosted database URL instead.");
+    }
+
+    return lines.join("\n");
+}
+
+
+async function initializePostgres(
+    pool,
+    databaseUrl
+) {
+    const maxAttempts = 5;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS complaints (
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    complaint_id TEXT NOT NULL UNIQUE,
+                    complaint_json TEXT NOT NULL
+                )
+            `);
+
+            if (attempt > 1) {
+                console.log(
+                    `Database connection ready after ${attempt} attempts.`
+                );
+            }
+
+            return;
+        } catch (error) {
+            lastError = error;
+
+            if (
+                !isTransientDatabaseError(error) ||
+                attempt === maxAttempts
+            ) {
+                break;
+            }
+
+            const delayMs = Math.min(
+                8000,
+                1000 * 2 ** (attempt - 1)
+            );
+
+            console.warn(
+                `Database not ready (attempt ${attempt}/${maxAttempts}, ${
+                    error.code || error.message
+                }). Retrying in ${Math.round(delayMs / 1000)}s...`
+            );
+
+            await new Promise((resolve) =>
+                setTimeout(resolve, delayMs)
+            );
+        }
+    }
+
+    const explained = new Error(
+        explainDatabaseError(lastError, databaseUrl)
+    );
+
+    explained.databaseError = true;
+    explained.cause = lastError;
+
+    throw explained;
+}
+
+
 function createApp(options = {}) {
     const databasePath = options.databasePath || DATABASE_PATH;
     const isProduction = process.env.NODE_ENV === "production";
@@ -659,17 +893,15 @@ function createApp(options = {}) {
             idleTimeoutMillis: 30_000,
             connectionTimeoutMillis: 10_000
         });
-        databaseReady = database.query(`
-            CREATE TABLE IF NOT EXISTS complaints (
-                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                complaint_id TEXT NOT NULL UNIQUE,
-                complaint_json TEXT NOT NULL
-            )
-        `);
+        databaseReady = initializePostgres(
+            database,
+            databaseUrl
+        );
     } else {
         const dataDirectory = path.dirname(databasePath);
         fs.mkdirSync(dataDirectory, { recursive: true });
-        database = new DatabaseSync(databasePath);
+        const Sqlite = loadSqlite();
+        database = new Sqlite(databasePath);
         database.exec(`
             CREATE TABLE IF NOT EXISTS complaints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -774,19 +1006,32 @@ function createApp(options = {}) {
         return complaintId;
     }
 
-    function requireAdmin(request, response, next) {
+    function readSessionToken(request) {
         const cookies = request.headers.cookie || "";
         const sessionCookie = cookies
             .split(";")
             .map((part) => part.trim())
             .find((part) => part.startsWith(`${SESSION_COOKIE}=`));
-        const token = sessionCookie
+
+        return sessionCookie
             ? decodeURIComponent(sessionCookie.slice(SESSION_COOKIE.length + 1))
             : "";
+    }
+
+    function hasValidSession(request) {
+        const token = readSessionToken(request);
         const expiresAt = sessions.get(token);
 
         if (!expiresAt || expiresAt <= Date.now()) {
             sessions.delete(token);
+            return false;
+        }
+
+        return true;
+    }
+
+    function requireAdmin(request, response, next) {
+        if (!hasValidSession(request)) {
             return response.status(401).json({ error: "Admin login required." });
         }
 
@@ -813,13 +1058,106 @@ function createApp(options = {}) {
         15 * 60 * 1000,
         "Too many login attempts. Please wait 15 minutes and try again."
     );
+    const limitStatsRequests = createRateLimiter(
+        120,
+        10 * 60 * 1000,
+        "Too many statistics requests. Please wait a few minutes and try again."
+    );
 
     app.get("/api/health", (request, response) => {
-        response.json({ status: "ok" });
+        response.json({
+            status: "ok",
+            database: usePostgres ? "postgres" : "sqlite",
+            uptimeSeconds: Math.round(process.uptime())
+        });
     });
 
     app.get("/api/config", (request, response) => {
         response.json({ photoUploadsEnabled });
+    });
+
+    app.get("/api/stats", limitStatsRequests, async (request, response) => {
+        const rows = await queryAll("SELECT complaint_json FROM complaints");
+        const complaints = rows.map((row) => JSON.parse(row.complaint_json));
+
+        const byStatus = { Submitted: 0, "In Progress": 0, Resolved: 0 };
+        const byPriority = { High: 0, Medium: 0, Low: 0 };
+        const categoryCounts = new Map();
+        const departmentCounts = new Map();
+        const buildingCounts = new Map();
+
+        let totalResolutionMs = 0;
+        let resolvedSamples = 0;
+        let feedbackTotal = 0;
+        let feedbackSamples = 0;
+
+        for (const complaint of complaints) {
+            if (byStatus[complaint.status] !== undefined) {
+                byStatus[complaint.status] += 1;
+            }
+            if (byPriority[complaint.priority] !== undefined) {
+                byPriority[complaint.priority] += 1;
+            }
+
+            const category = complaint.category || "Other";
+            categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+
+            const department = complaint.department || "General Administration";
+            departmentCounts.set(department, (departmentCounts.get(department) || 0) + 1);
+
+            const building = complaint.building || "Not provided";
+            buildingCounts.set(building, (buildingCounts.get(building) || 0) + 1);
+
+            if (
+                complaint.status === "Resolved" &&
+                complaint.resolvedAt &&
+                complaint.createdAt
+            ) {
+                totalResolutionMs += Math.max(
+                    0,
+                    complaint.resolvedAt - complaint.createdAt
+                );
+                resolvedSamples += 1;
+            }
+
+            if (Number(complaint.feedbackRating) > 0) {
+                feedbackTotal += Number(complaint.feedbackRating);
+                feedbackSamples += 1;
+            }
+        }
+
+        const total = complaints.length;
+        const resolved = byStatus.Resolved;
+
+        const toRankedList = (counts, limit) =>
+            Array.from(counts.entries())
+                .map(([name, count]) => ({
+                    name,
+                    count,
+                    percentage: total ? Math.round((count / total) * 100) : 0
+                }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, limit);
+
+        response.json({
+            total,
+            byStatus,
+            byPriority,
+            resolutionRate: total ? Math.round((resolved / total) * 100) : 0,
+            averageResolutionHours:
+                resolvedSamples > 0
+                    ? Math.round((totalResolutionMs / resolvedSamples / 3_600_000) * 10) / 10
+                    : null,
+            averageFeedbackRating:
+                feedbackSamples > 0
+                    ? Math.round((feedbackTotal / feedbackSamples) * 10) / 10
+                    : null,
+            feedbackCount: feedbackSamples,
+            topCategories: toRankedList(categoryCounts, 6),
+            topDepartments: toRankedList(departmentCounts, 5),
+            topBuildings: toRankedList(buildingCounts, 5),
+            generatedAt: Date.now()
+        });
     });
 
     app.post("/api/ai/suggest", limitAiSuggestions, (request, response) => {
@@ -947,6 +1285,14 @@ function createApp(options = {}) {
             status: "Submitted",
             date: new Date(createdAt).toLocaleString("en-IN"),
             createdAt,
+            resolvedAt: null,
+            statusHistory: [
+                {
+                    status: "Submitted",
+                    at: createdAt,
+                    note: "Complaint registered by the student."
+                }
+            ],
             photoName: String(body.photoName || "").trim(),
             photoData: String(body.photoData || ""),
             adminRemark: "",
@@ -1039,8 +1385,10 @@ function createApp(options = {}) {
         response.json({ authenticated: true });
     });
 
-    app.get("/api/admin/session", requireAdmin, (request, response) => {
-        response.json({ authenticated: true });
+    app.get("/api/admin/session", (request, response) => {
+        // Always 200 so the admin page can quietly check for a session
+        // without a red 401 entry in the browser console.
+        response.json({ authenticated: hasValidSession(request) });
     });
 
     app.post("/api/admin/logout", requireAdmin, (request, response) => {
@@ -1086,8 +1434,31 @@ function createApp(options = {}) {
                 if (!STATUSES.has(status)) {
                     return response.status(400).json({ error: "Invalid status." });
                 }
+                const previousStatus = complaint.status;
                 complaint.status = status;
                 updatedAnyField = true;
+
+                if (previousStatus !== status) {
+                    if (!Array.isArray(complaint.statusHistory)) {
+                        complaint.statusHistory = [];
+                    }
+                    complaint.statusHistory.push({
+                        status,
+                        at: Date.now(),
+                        note:
+                            typeof adminRemark === "string" && adminRemark.trim()
+                                ? adminRemark.trim()
+                                : `Status changed from ${previousStatus} to ${status}.`
+                    });
+                }
+
+                if (status === "Resolved") {
+                    if (!complaint.resolvedAt) {
+                        complaint.resolvedAt = Date.now();
+                    }
+                } else {
+                    complaint.resolvedAt = null;
+                }
             }
             if (adminRemark !== undefined) {
                 if (typeof adminRemark !== "string" || adminRemark.length > 2000) {
@@ -1131,6 +1502,8 @@ function createApp(options = {}) {
         "/index.html": "index.html",
         "/style.css": "style.css",
         "/script.js": "script.js",
+        "/theme.js": "theme.js",
+        "/ui.css": "ui.css",
         "/admin.html": "admin.html",
         "/admin.css": "admin.css",
         "/admin.js": "admin.js"
@@ -1177,10 +1550,28 @@ if (require.main === module) {
             });
         })
         .catch(async (error) => {
-            console.error("Smart Campus database could not be initialized:", error);
-            await app.locals.closeDatabase();
+            if (error && error.databaseError) {
+                console.error("\n" + error.message + "\n");
+            } else {
+                console.error(
+                    "Smart Campus database could not be initialized:",
+                    error
+                );
+            }
+
+            try {
+                await app.locals.closeDatabase();
+            } catch (closeError) {
+                console.error(closeError);
+            }
+
             process.exitCode = 1;
         });
 }
 
-module.exports = { createApp };
+module.exports = {
+    createApp,
+    describeDatabaseUrl,
+    explainDatabaseError,
+    normalizeDatabaseError
+};

@@ -14,10 +14,21 @@
         Admin Dashboard - Smart Campus
     </title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <link
+        rel="stylesheet"
+        href="ui.css"
+    >
+
     <link
         rel="stylesheet"
         href="admin.css"
     >
+
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>">
 
 </head>
 
@@ -31,6 +42,16 @@
         class="login-page"
         id="loginPage"
     >
+
+        <button
+            type="button"
+            class="theme-toggle theme-toggle-floating"
+            data-theme-toggle
+            aria-label="Switch to dark mode"
+        >
+            <span data-theme-icon>☾</span>
+            <span class="theme-toggle-text" data-theme-label>Dark Mode</span>
+        </button>
 
         <div class="login-card">
 
@@ -60,6 +81,7 @@
                         type="text"
                         id="username"
                         placeholder="Enter username"
+                        autocomplete="username"
                         required
                     >
 
@@ -76,6 +98,7 @@
                         type="password"
                         id="password"
                         placeholder="Enter password"
+                        autocomplete="current-password"
                         required
                     >
 
@@ -85,6 +108,7 @@
                 <p
                     class="login-error"
                     id="loginError"
+                    role="alert"
                 ></p>
 
 
@@ -150,6 +174,16 @@
                     ADMIN
                 </span>
 
+                <button
+                    type="button"
+                    class="theme-toggle"
+                    data-theme-toggle
+                    aria-label="Switch to dark mode"
+                >
+                    <span data-theme-icon>☾</span>
+                    <span class="theme-toggle-text" data-theme-label>Dark Mode</span>
+                </button>
+
 
                 <button
                     id="logoutButton"
@@ -183,12 +217,39 @@
                 </div>
 
 
-                <button
-                    id="refreshButton"
-                    class="refresh-button"
-                >
-                    ↻ Refresh
-                </button>
+                <div class="dashboard-toolbar">
+
+                    <span class="last-updated" id="lastUpdated" title="Last time the list was refreshed">
+                        —
+                    </span>
+
+                    <label class="auto-refresh-toggle" for="autoRefreshToggle">
+                        <input
+                            type="checkbox"
+                            id="autoRefreshToggle"
+                        >
+                        <span class="auto-refresh-track"><span class="auto-refresh-thumb"></span></span>
+                        Auto refresh
+                    </label>
+
+                    <button
+                        id="exportCsvButton"
+                        class="toolbar-button"
+                        type="button"
+                        title="Download the filtered complaints as a CSV file"
+                    >
+                        ⬇ Export CSV
+                    </button>
+
+                    <button
+                        id="refreshButton"
+                        class="refresh-button"
+                        title="Refresh the complaint list now"
+                    >
+                        ↻ Refresh
+                    </button>
+
+                </div>
 
             </div>
 
@@ -274,6 +335,48 @@
 
                         <h3 id="resolvedComplaints">
                             0
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card summary-card-accent">
+
+                    <div class="summary-icon">
+                        📈
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Resolution Rate
+                        </p>
+
+                        <h3 id="resolutionRateComplaints">
+                            0%
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card summary-card-accent">
+
+                    <div class="summary-icon">
+                        ⏱️
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Avg Resolution Time
+                        </p>
+
+                        <h3 id="avgResolutionTime">
+                            —
                         </h3>
 
                     </div>
@@ -611,6 +714,7 @@
     </section>
 
 
+    <script src="theme.js"></script>
     <script src="admin.js"></script>
 
 </body>
