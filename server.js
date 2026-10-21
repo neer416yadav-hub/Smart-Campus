@@ -1506,7 +1506,10 @@ function createApp(options = {}) {
         "/ui.css": "ui.css",
         "/admin.html": "admin.html",
         "/admin.css": "admin.css",
-        "/admin.js": "admin.js"
+        "/admin.js": "admin.js",
+        "/logo.png": "logo.png",
+        "/favicon.png": "favicon.png",
+        "/apple-touch-icon.png": "apple-touch-icon.png"
     };
 
     for (const [route, fileName] of Object.entries(publicFiles)) {

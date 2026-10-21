@@ -211,24 +211,24 @@ body {
     width: 46px;
     height: 46px;
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    border-radius: 14px;
+
+    background: #ffffff;
+
+    box-shadow:
+        0 8px 20px rgba(79, 70, 229, 0.28),
+        0 0 0 1px rgba(79, 70, 229, 0.14);
+}
+
+.logo-img {
+    display: block;
+
+    width: 46px;
+    height: 46px;
 
     border-radius: 14px;
 
-    background: var(--brand-grad);
-    background-size: 200% 200%;
-
-    color: var(--on-brand);
-
-    font-weight: 800;
-    font-size: 16px;
-    letter-spacing: 0.5px;
-
-    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
-
-    animation: gradient-pan 8s ease infinite;
+    object-fit: cover;
 }
 
 @keyframes gradient-pan {
