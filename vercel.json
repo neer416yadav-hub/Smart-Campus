@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "index.html",
+          "admin.html",
+          "style.css",
+          "ui.css",
+          "admin.css",
+          "script.js",
+          "theme.js",
+          "admin.js",
+          "logo.png",
+          "favicon.png",
+          "apple-touch-icon.png"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.js"
+    }
+  ]
+}

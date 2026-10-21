@@ -111,6 +111,23 @@ How to fix it:
 
 It also retries transient connection failures (database still starting, DNS not ready) up to five times with backoff before giving up, which avoids most "database was not ready" deploy failures.
 
+### Deploying to Vercel
+
+Vercel runs serverless functions, so `server.js` (which calls `app.listen`) cannot be deployed as-is. This repository includes:
+
+- `api/index.js` — a thin Vercel handler that builds the Express app once per instance and forwards every request to it.
+- `vercel.json` — routes all traffic to that handler and bundles the HTML, CSS, JS and image files with it.
+
+Deploy with **New Project → import the repository**. The defaults work, but you must add these environment variables under **Settings → Environment Variables** before the first request succeeds:
+
+- `DATABASE_URL` = your PostgreSQL connection string (**required on Vercel** — the filesystem is read-only apart from `/tmp`, so SQLite cannot be used there)
+- `ADMIN_USERNAME` = your admin login name
+- `ADMIN_PASSWORD` = a unique password of at least 12 characters
+
+If a variable is missing the function returns a JSON error explaining exactly which one, instead of an opaque `500 FUNCTION_INVOCATION_FAILED`. Check it at `https://<project>.vercel.app/api/health`.
+
+A note on platform choice: Render (a long-running server) fits this app better than Vercel, because Vercel spins a new instance at any time and cannot keep a local SQLite file. On Vercel, always use a hosted PostgreSQL database such as Supabase or Neon.
+
 The backend uses the database connection string server-side; do not place it in browser JavaScript. Public complaint, tracking, AI, and admin-login requests have basic per-IP rate limits. Photo uploads are disabled in production by default; keep them off until a separate storage plan is set up. The Render Free web service sleeps after inactivity, and the Supabase Free project may pause after a week with little activity. Free plans do not include database backup downloads, so periodically export a backup manually. Review both providers' current limits before sharing a public URL.
 
 Public complaint tracking asks for both the complaint ID and the submitter's roll number and returns only tracking fields. Feedback submission also requires the roll number. Use test data when sharing the public demo. Anyone with the public URL can submit a complaint; the URL is not restricted to friends.
