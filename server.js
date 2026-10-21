@@ -1,0 +1,1186 @@
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const { DatabaseSync } = require("node:sqlite");
+const express = require("express");
+const { Pool } = require("pg");
+
+const PORT = Number(process.env.PORT) || 3000;
+const DATABASE_PATH =
+    process.env.DATABASE_PATH ||
+    path.join(__dirname, "data", "smart-campus.sqlite");
+const SESSION_COOKIE = "smartCampusAdminSession";
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+const CATEGORIES = new Set([
+    "wifi",
+    "electrical",
+    "sanitation",
+    "infrastructure",
+    "classroom",
+    "hostel",
+    "library",
+    "security",
+    "water",
+    "furniture",
+    "transport",
+    "other"
+]);
+const STATUSES = new Set([
+    "Submitted",
+    "In Progress",
+    "Resolved"
+]);
+const CATEGORY_DETAILS = {
+    wifi: {
+        name: "Wi-Fi / Internet Issue",
+        department: "IT Department",
+        examples: [
+            "wifi internet not working",
+            "campus network connection keeps disconnecting",
+            "cannot connect to the router",
+            "internet is very slow in the computer lab",
+            "online attendance system has no network",
+            "wifi connection problem",
+            "wireless wifi signal is weak",
+            "wifi access point needs repair",
+            "internet connection is down",
+            "wifi is not working in the classroom",
+            "lab ka wifi nahi chal raha",
+            "computer lab ka internet band hai",
+            "classroom mein wifi signal nahi aa raha",
+            "वाई फाई काम नहीं कर रहा है",
+            "कंप्यूटर लैब में इंटरनेट नहीं चल रहा",
+            "वाईफाई का कनेक्शन बार बार टूट रहा है",
+            "Hostel mein wifi bahut slow chal raha hai",
+            "लाइब्रेरी में नेटवर्क कनेक्शन नहीं है"
+        ]
+    },
+    electrical: {
+        name: "Electrical Problem",
+        department: "Electrical Maintenance",
+        examples: [
+            "classroom fan is not working",
+            "light bulb is broken",
+            "power socket has stopped working",
+            "electricity supply problem in the room",
+            "switchboard needs electrical repair",
+            "class ka fan kharab hai",
+            "light nahi jal rahi hai",
+            "switch board kaam nahi kar raha",
+            "कक्षा का पंखा खराब है",
+            "कमरे की लाइट काम नहीं कर रही",
+            "बिजली का स्विच टूट गया है",
+            "Lab mein power socket nahi chal raha",
+            "कमरे में बिजली की सप्लाई नहीं है"
+        ]
+    },
+    sanitation: {
+        name: "Sanitation / Cleanliness",
+        department: "Housekeeping Department",
+        examples: [
+            "classroom is dirty and needs cleaning",
+            "washroom is not clean",
+            "garbage bin is full",
+            "bad smell near the corridor",
+            "cleaning is needed in the common area",
+            "washroom bahut ganda hai",
+            "classroom ki safai nahi hui",
+            "dustbin kachre se bhar gaya hai",
+            "शौचालय साफ नहीं है",
+            "कक्षा में कूड़ा पड़ा हुआ है",
+            "गलियारे में बहुत गंदगी है",
+            "Hostel ka bathroom clean nahi hai",
+            "कचरे का डिब्बा भर गया है"
+        ]
+    },
+    infrastructure: {
+        name: "Infrastructure Damage",
+        department: "Civil / Infrastructure Department",
+        examples: [
+            "wall is cracked and damaged",
+            "ceiling is leaking in the building",
+            "staircase railing is broken",
+            "floor tiles are damaged",
+            "door frame needs civil repair",
+            "building ki deewar mein darar aa gayi hai",
+            "chhat se paani tapak raha hai",
+            "seedhi ki railing toot gayi hai",
+            "दीवार में दरार आ गई है",
+            "छत से पानी टपक रहा है",
+            "फर्श की टाइल टूट गई है",
+            "Building ka darwaza damage hai",
+            "सीढ़ियों की रेलिंग ठीक करवानी है"
+        ]
+    },
+    classroom: {
+        name: "Classroom Problem",
+        department: "Academic / Maintenance Department",
+        examples: [
+            "projector is not working in the classroom",
+            "smart board has a display problem",
+            "classroom has no teaching equipment",
+            "lecture room needs a working microphone",
+            "classroom is too hot during the lecture",
+            "projector class mein kaam nahi kar raha",
+            "smart board ka display nahi aa raha",
+            "classroom mein microphone ki awaaz nahi aa rahi",
+            "कक्षा का प्रोजेक्टर काम नहीं कर रहा",
+            "स्मार्ट बोर्ड की स्क्रीन नहीं चल रही",
+            "लेक्चर हॉल में माइक खराब है",
+            "Classroom mein students ke liye equipment nahi hai",
+            "क्लासरूम में बहुत गर्मी है"
+        ]
+    },
+    hostel: {
+        name: "Hostel Problem",
+        department: "Hostel Administration",
+        examples: [
+            "hostel room needs repair",
+            "hostel common room has a problem",
+            "hostel warden should check this issue",
+            "bedroom in the hostel is damaged",
+            "hostel facilities are not working",
+            "hostel room mein repair chahiye",
+            "hostel ke common area mein problem hai",
+            "hostel warden ko complaint batani hai",
+            "हॉस्टल के कमरे में मरम्मत चाहिए",
+            "छात्रावास के कमरे में समस्या है",
+            "hostel ki facilities kharab hain",
+            "हॉस्टल के कॉमन रूम में दिक्कत है",
+            "Hostel building ki maintenance chahiye"
+        ]
+    },
+    library: {
+        name: "Library Problem",
+        department: "Library Administration",
+        examples: [
+            "library book is missing from the shelf",
+            "library reading room needs attention",
+            "library is closed when it should be open",
+            "quiet study area in the library has a problem",
+            "library computer is not working",
+            "library ki book nahi mil rahi",
+            "library computer kaam nahi kar raha",
+            "reading room mein problem hai",
+            "लाइब्रेरी की किताब गायब है",
+            "पुस्तकालय का कंप्यूटर नहीं चल रहा",
+            "लाइब्रेरी का रीडिंग रूम बंद है",
+            "Library mein study area saaf nahi hai",
+            "पुस्तकालय खुला नहीं है"
+        ]
+    },
+    security: {
+        name: "Security Issue",
+        department: "Security Department",
+        examples: [
+            "unauthorized person entered the campus",
+            "campus gate security is not present",
+            "lost property needs to be reported to security",
+            "security camera is not working",
+            "campus safety concern near the entrance",
+            "college gate par security guard nahi hai",
+            "campus mein unknown person ghoom raha hai",
+            "security camera kaam nahi kar raha",
+            "कॉलेज के गेट पर सुरक्षा गार्ड नहीं है",
+            "कैंपस में कोई अनजान व्यक्ति घूम रहा है",
+            "सुरक्षा कैमरा काम नहीं कर रहा",
+            "Campus entrance par safety problem hai",
+            "सुरक्षा विभाग को शिकायत करनी है"
+        ]
+    },
+    water: {
+        name: "Water Supply Issue",
+        department: "Water & Maintenance Department",
+        examples: [
+            "no water supply in the washroom",
+            "drinking water tap is not working",
+            "water pipe is leaking",
+            "water tank is empty",
+            "water quality in the campus is poor",
+            "hostel mein paani nahi aa raha",
+            "drinking water ka nal kharab hai",
+            "pipe se paani leak ho raha hai",
+            "हॉस्टल में पानी नहीं आ रहा है",
+            "पानी की टंकी खाली है",
+            "पीने के पानी का नल खराब है",
+            "Washroom mein water supply band hai",
+            "पाइप से पानी बह रहा है"
+        ]
+    },
+    furniture: {
+        name: "Furniture Problem",
+        department: "Furniture / Maintenance Department",
+        examples: [
+            "classroom chair is broken",
+            "desk is damaged and needs repair",
+            "table is missing from the room",
+            "bench is unstable in the lecture hall",
+            "cupboard door is broken",
+            "classroom ki chair toot gayi hai",
+            "desk hil raha hai aur repair chahiye",
+            "room mein table nahi hai",
+            "कक्षा की कुर्सी टूट गई है",
+            "डेस्क खराब है",
+            "बेंच हिल रही है",
+            "Cupboard ka darwaza toot gaya hai",
+            "कमरे में मेज की जरूरत है"
+        ]
+    },
+    transport: {
+        name: "Transport Issue",
+        department: "Transport Department",
+        examples: [
+            "campus bus is late",
+            "college shuttle route has a problem",
+            "bus stop needs attention",
+            "transport vehicle is not working",
+            "campus bus schedule is incorrect",
+            "college bus late aa rahi hai",
+            "campus shuttle ka route galat hai",
+            "bus stop par bus nahi rukti",
+            "कॉलेज की बस देर से आती है",
+            "कैंपस बस का समय गलत है",
+            "बस स्टॉप पर कोई सुविधा नहीं है",
+            "Campus bus kharab ho gayi hai",
+            "बस का रूट बदल गया है"
+        ]
+    },
+    other: {
+        name: "Other / Needs Review",
+        department: "General Administration",
+        examples: [
+            "I have a general campus complaint",
+            "please review this other issue",
+            "this problem does not match a listed category"
+        ]
+    }
+};
+
+const PRIORITY_TERMS = {
+    emergency: [
+        /\bfire\b/i,
+        /\bsmoke\b/i,
+        /\bsparks?\b/i,
+        /\bshort[\s-]?circuit\b/i,
+        /\belectric(?:al|ity)? shock\b/i,
+        /\bgas leak\b/i,
+        /\bflood(?:ing)?\b/i,
+        /\bwater leakage\b/i,
+        /\binjur(?:y|ies)\b/i,
+        /\baccident\b/i,
+        /\b(?:burning|burnt|burned) smell\b/i,
+        /\bsmell of burning\b/i,
+        /\bexposed wire\b/i,
+        /\blive wire\b/i,
+        /\bburnt wire\b/i,
+        /\bburned wire\b/i,
+        /\bwire burn(?:t|ed)\b/i,
+        /\bwire jal(?: gai| gayi)?\b/i,
+        /\bcurrent\b/i,
+        /\bshock\b/i,
+        /\bbroken glass\b/i,
+        /\bdanger(?:ous)?\b/i,
+        /\bemergency\b/i,
+        /\bunsafe\b/i,
+        /\burgent\b/i,
+        /\bjalne ki (?:smell|gandh)\b/i,
+        /\bbijli ka jhatka\b/i,
+        /\bcurrent lag(?:a|i| gaya| gayi)?\b/i,
+        /\bchingaari\b/i,
+        /\bchingari\b/i,
+        /आग लग/,
+        /आग लगी/,
+        /धुआँ|धुआं|धुआ\b/,
+        /चिंगारी/,
+        /बिजली का झटका/,
+        /करंट लग/,
+        /गैस लीक/,
+        /गैस रिसाव/,
+        /पानी भर गया/,
+        /बाढ़/,
+        /चोट लग/,
+        /जलने की गंध/,
+        /जलने की बदबू/,
+        /तार में आग/,
+        /खुला तार/,
+        /खतरनाक/,
+        /असुरक्षित/,
+        /आपातकाल/,
+        /\baag\b/i,
+        /\bdhua+n?\b/i,
+        /\bcurrent lag/i,
+        /\bchingaari\b/i,
+        /\bbijli ka jhatka\b/i,
+        /\bgas leak\b/i,
+        /\bpaani bhar gaya\b/i,
+        /\bchot lag/i,
+        /\bjalne ki (?:gandh|smell)\b/i,
+        /\bkhatarnak\b/i
+    ],
+    issue: [
+        /\bnot working\b/i,
+        /\b(?:broken|damage[dt]?|leak(?:ing)?|repair|problem|issue|slow|dirty)\b/i,
+        /\bkharab\b/i,
+        /\bkharaab\b/i,
+        /\btoot gaya\b/i,
+        /\btoot gai\b/i,
+        /\btheek nahi\b/i,
+        /\bkaam nahi kar/i,
+        /\bnahi chal raha\b/i,
+        /\bnahi chal rahi\b/i,
+        /\bnahi aa raha\b/i,
+        /\bnahi aa rahi\b/i,
+        /\bband ho gaya\b/i,
+        /\bganda\b/i,
+        /\bgandi\b/i,
+        /काम नहीं कर/,
+        /काम नही कर/,
+        /नहीं चल रहा/,
+        /नहीं चल रही/,
+        /नही चल रहा/,
+        /नही चल रही/,
+        /नहीं आ रहा/,
+        /नहीं आ रही/,
+        /नही आ रहा/,
+        /नही आ रही/,
+        /खराब है/,
+        /टूट गया/,
+        /टूट गई/,
+        /गंदा है/,
+        /गंदी है/,
+        /रिसाव हो रहा/,
+        /साफ नहीं है/
+    ]
+};
+
+function tokenize(text) {
+    const commonWords = new Set([
+        "a", "an", "and", "at", "by", "for", "from", "has", "have",
+        "in", "is", "it", "my", "of", "our", "please", "the", "to",
+        "was", "with", "not", "ka", "ki", "ke", "hai", "hain", "ho",
+        "raha", "rahi", "rahe", "mein", "me", "par", "se", "ko",
+        "ye", "yeh", "nahi", "nahin", "nhi", "kar", "karo", "kare",
+        "gaya", "gayi", "gaye", "tha", "thi", "the", "aur", "bahut",
+        "का", "की", "के", "है", "हैं", "हो", "में", "मे", "पर",
+        "से", "को", "यह", "ये", "और", "नहीं", "नही", "था", "थी",
+        "थे", "गया", "गई", "गए", "रहा", "रही", "रहे", "बहुत"
+    ]);
+
+    return (String(text)
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/\bwi[\s-]+fi\b/g, "wifi")
+        .match(/[\p{L}\p{N}]+/gu) || [])
+        .filter((token) => !commonWords.has(token));
+}
+
+function trainCategoryModel() {
+    const model = {};
+    let totalExamples = 0;
+
+    for (const [categoryCode, details] of Object.entries(CATEGORY_DETAILS)) {
+        const wordCounts = new Map();
+        let tokenCount = 0;
+
+        for (const example of details.examples) {
+            totalExamples += 1;
+            for (const token of tokenize(example)) {
+                wordCounts.set(token, (wordCounts.get(token) || 0) + 1);
+                tokenCount += 1;
+            }
+        }
+
+        model[categoryCode] = {
+            documentCount: details.examples.length,
+            wordCounts,
+            tokenCount
+        };
+    }
+
+    return { categories: model, totalExamples };
+}
+
+const CATEGORY_MODEL = trainCategoryModel();
+
+function summarizeComplaint(description) {
+    const sentences = String(description)
+        .replace(/\s+/g, " ")
+        .match(/[^.!?]+[.!?]?/g)
+        ?.map((sentence) => sentence.trim())
+        .filter(Boolean) || [];
+
+    if (sentences.length === 0) {
+        return "";
+    }
+
+    const sentenceTokens = sentences.map((sentence) =>
+        tokenize(sentence).filter((token) => token.length > 2)
+    );
+    const frequencies = new Map();
+    for (const tokens of sentenceTokens) {
+        for (const token of new Set(tokens)) {
+            frequencies.set(token, (frequencies.get(token) || 0) + 1);
+        }
+    }
+
+    let bestIndex = 0;
+    let bestScore = -1;
+    for (let index = 0; index < sentences.length; index += 1) {
+        const tokens = sentenceTokens[index];
+        const score = tokens.reduce(
+            (total, token) =>
+                total + 1 / (frequencies.get(token) || 1),
+            0
+        ) / Math.sqrt(Math.max(tokens.length, 1));
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestIndex = index;
+        }
+    }
+
+    const summary = sentences[bestIndex];
+    if (summary.length <= 220) {
+        return summary;
+    }
+
+    const shortened = summary.slice(0, 217);
+    const lastSpace = shortened.lastIndexOf(" ");
+    return `${shortened.slice(0, lastSpace > 0 ? lastSpace : 217)}...`;
+}
+
+function analyzeComplaint(description) {
+    const tokens = tokenize(description);
+    const vocabulary = new Set();
+    for (const category of Object.values(CATEGORY_MODEL.categories)) {
+        for (const token of category.wordCounts.keys()) {
+            vocabulary.add(token);
+        }
+    }
+
+    const knownTokens = tokens.filter((token) => vocabulary.has(token));
+    let predictedCategoryCode = "other";
+    let confidence = 0;
+
+    if (knownTokens.length > 0) {
+        const scores = [];
+        for (const [code, category] of Object.entries(CATEGORY_MODEL.categories)) {
+            let score = Math.log(
+                category.documentCount / CATEGORY_MODEL.totalExamples
+            );
+            for (const token of knownTokens) {
+                const count = category.wordCounts.get(token) || 0;
+                score += Math.log(
+                    (count + 1) /
+                    (category.tokenCount + vocabulary.size)
+                );
+            }
+            scores.push({ code, score });
+        }
+
+        const maximumScore = Math.max(...scores.map((item) => item.score));
+        const probabilities = scores.map((item) => ({
+            ...item,
+            probability: Math.exp(item.score - maximumScore)
+        }));
+        const totalProbability = probabilities.reduce(
+            (sum, item) => sum + item.probability,
+            0
+        );
+        probabilities.sort((first, second) => second.score - first.score);
+        predictedCategoryCode = probabilities[0].code;
+        confidence = Math.round(
+            (probabilities[0].probability / totalProbability) * 100
+        );
+    }
+
+    const needsReview = confidence < 35;
+    const categoryCode = needsReview ? "other" : predictedCategoryCode;
+    const emergency = PRIORITY_TERMS.emergency.some((pattern) =>
+        pattern.test(description)
+    );
+    const hasIssue = PRIORITY_TERMS.issue.some((pattern) =>
+        pattern.test(description)
+    );
+    const priority = emergency ? "High" : hasIssue ? "Medium" : "Low";
+    const details = CATEGORY_DETAILS[categoryCode];
+
+    return {
+        summary: summarizeComplaint(description),
+        categoryCode,
+        category: details.name,
+        department: details.department,
+        priority,
+        emergency,
+        confidence,
+        needsReview,
+        reason: emergency
+            ? "Possible safety risk detected. An administrator should review this immediately."
+            : needsReview
+                ? "AI is not confident enough to choose a category. Please select one manually."
+                : "Suggested from the complaint text and local training examples.",
+        model: "Smart Campus local text classifier v1"
+    };
+}
+
+async function countSimilarComplaints(queryAll, complaint) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const newTokens = new Set(tokenize(complaint.description));
+    if (newTokens.size < 2) {
+        return 0;
+    }
+
+    const rows = await queryAll(
+        "SELECT complaint_json FROM complaints",
+        []
+    );
+
+    return rows.reduce((count, row) => {
+        const existing = JSON.parse(row.complaint_json);
+        const sameCategory =
+            existing.categoryCode === complaint.categoryCode;
+        const sameBuilding =
+            String(existing.building || "").trim().toLowerCase() ===
+            complaint.building.trim().toLowerCase();
+        const createdAt = Number(existing.createdAt) || 0;
+
+        if (
+            !sameCategory ||
+            !sameBuilding ||
+            createdAt < cutoff
+        ) {
+            return count;
+        }
+
+        const existingTokens = new Set(tokenize(existing.description));
+        let sharedTokens = 0;
+        for (const token of newTokens) {
+            if (existingTokens.has(token)) {
+                sharedTokens += 1;
+            }
+        }
+
+        const unionSize =
+            newTokens.size + existingTokens.size - sharedTokens;
+        const similarity = unionSize
+            ? sharedTokens / unionSize
+            : 0;
+
+        return sharedTokens >= 2 && similarity >= 0.25
+            ? count + 1
+            : count;
+    }, 0);
+}
+
+function getPublicTrackingDetails(complaint) {
+    return {
+        complaintId: complaint.complaintId,
+        category: complaint.category,
+        categoryCode: complaint.categoryCode,
+        priority: complaint.priority,
+        department: complaint.department,
+        building: complaint.building,
+        floor: complaint.floor,
+        roomNumber: complaint.roomNumber,
+        status: complaint.status,
+        date: complaint.date,
+        adminRemark: complaint.adminRemark,
+        feedbackRating: complaint.feedbackRating,
+        feedbackComment: complaint.feedbackComment
+    };
+}
+
+function createRateLimiter(maxRequests, windowMs, message) {
+    const requestsByIp = new Map();
+
+    return (request, response, next) => {
+        const now = Date.now();
+        const key = request.ip || request.socket.remoteAddress || "unknown";
+        let entry = requestsByIp.get(key);
+
+        if (!entry || now - entry.startedAt >= windowMs) {
+            entry = { startedAt: now, count: 0 };
+            requestsByIp.set(key, entry);
+        }
+
+        entry.count += 1;
+        if (entry.count > maxRequests) {
+            const retryAfterSeconds = Math.ceil(
+                (windowMs - (now - entry.startedAt)) / 1000
+            );
+            response.setHeader("Retry-After", String(retryAfterSeconds));
+            return response.status(429).json({ error: message });
+        }
+
+        if (requestsByIp.size > 5000) {
+            for (const [ip, item] of requestsByIp) {
+                if (now - item.startedAt >= windowMs) {
+                    requestsByIp.delete(ip);
+                }
+            }
+        }
+
+        next();
+    };
+}
+
+function createApp(options = {}) {
+    const databasePath = options.databasePath || DATABASE_PATH;
+    const isProduction = process.env.NODE_ENV === "production";
+    const databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
+    const usePostgres = Boolean(databaseUrl);
+    if (
+        isProduction &&
+        (
+            !process.env.ADMIN_USERNAME ||
+            !process.env.ADMIN_PASSWORD ||
+            process.env.ADMIN_PASSWORD.length < 12 ||
+            !databaseUrl
+        )
+    ) {
+        throw new Error(
+            "Production requires DATABASE_URL, ADMIN_USERNAME, and an ADMIN_PASSWORD of at least 12 characters."
+        );
+    }
+
+    const adminUsername =
+        options.adminUsername || process.env.ADMIN_USERNAME || "admin";
+    const adminPassword =
+        options.adminPassword || process.env.ADMIN_PASSWORD || "admin123";
+    const photoUploadsEnabled =
+        !isProduction || process.env.ENABLE_PHOTO_UPLOADS === "true";
+    let database;
+    let databaseReady;
+
+    if (usePostgres) {
+        database = new Pool({
+            connectionString: databaseUrl,
+            max: 5,
+            idleTimeoutMillis: 30_000,
+            connectionTimeoutMillis: 10_000
+        });
+        databaseReady = database.query(`
+            CREATE TABLE IF NOT EXISTS complaints (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                complaint_id TEXT NOT NULL UNIQUE,
+                complaint_json TEXT NOT NULL
+            )
+        `);
+    } else {
+        const dataDirectory = path.dirname(databasePath);
+        fs.mkdirSync(dataDirectory, { recursive: true });
+        database = new DatabaseSync(databasePath);
+        database.exec(`
+            CREATE TABLE IF NOT EXISTS complaints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                complaint_id TEXT NOT NULL UNIQUE,
+                complaint_json TEXT NOT NULL
+            )
+        `);
+        databaseReady = Promise.resolve();
+    }
+
+    const sessions = new Map();
+    const app = express();
+    app.disable("x-powered-by");
+    app.set("trust proxy", isProduction ? 1 : false);
+    app.use(express.json({ limit: photoUploadsEnabled ? "8mb" : "256kb" }));
+
+    app.locals.database = database;
+    app.locals.databaseMode = usePostgres ? "postgres" : "sqlite";
+    app.locals.ready = databaseReady;
+    app.locals.closeDatabase = () =>
+        usePostgres ? database.end() : database.close();
+    app.use((request, response, next) => {
+        databaseReady.then(() => next()).catch(next);
+    });
+
+    function toPostgresPlaceholders(sql) {
+        let index = 0;
+        return sql.replace(/\?/g, () => `$${++index}`);
+    }
+
+    async function queryAll(sql, parameters = []) {
+        if (usePostgres) {
+            const result = await database.query(
+                toPostgresPlaceholders(sql),
+                parameters
+            );
+            return result.rows;
+        }
+        return database.prepare(sql).all(...parameters);
+    }
+
+    async function queryOne(sql, parameters = []) {
+        if (usePostgres) {
+            const result = await database.query(
+                toPostgresPlaceholders(sql),
+                parameters
+            );
+            return result.rows[0];
+        }
+        return database.prepare(sql).get(...parameters);
+    }
+
+    async function queryRun(sql, parameters = []) {
+        if (usePostgres) {
+            return database.query(toPostgresPlaceholders(sql), parameters);
+        }
+        return database.prepare(sql).run(...parameters);
+    }
+
+    async function getComplaint(complaintId) {
+        const row = await queryOne(
+            "SELECT complaint_json FROM complaints WHERE complaint_id = ?",
+            [complaintId]
+        );
+        return row ? JSON.parse(row.complaint_json) : null;
+    }
+
+    async function saveComplaint(complaint) {
+        await queryRun(
+            "UPDATE complaints SET complaint_json = ? WHERE complaint_id = ?",
+            [JSON.stringify(complaint), complaint.complaintId]
+        );
+    }
+
+    async function generateComplaintId(year) {
+        const existingIds = await queryAll(
+            "SELECT complaint_id FROM complaints WHERE complaint_id LIKE ?",
+            [`SC-${year}-%`]
+        );
+        let highestNumber = 0;
+
+        for (const row of existingIds) {
+            const match = row.complaint_id.match(
+                new RegExp(`^SC-${year}-(\\d+)$`)
+            );
+            if (match) {
+                highestNumber = Math.max(
+                    highestNumber,
+                    Number(match[1])
+                );
+            }
+        }
+
+        let nextNumber = highestNumber + 1;
+        let complaintId = `SC-${year}-${String(nextNumber).padStart(4, "0")}`;
+
+        while (await getComplaint(complaintId)) {
+            nextNumber += 1;
+            complaintId = `SC-${year}-${String(nextNumber).padStart(4, "0")}`;
+        }
+
+        return complaintId;
+    }
+
+    function requireAdmin(request, response, next) {
+        const cookies = request.headers.cookie || "";
+        const sessionCookie = cookies
+            .split(";")
+            .map((part) => part.trim())
+            .find((part) => part.startsWith(`${SESSION_COOKIE}=`));
+        const token = sessionCookie
+            ? decodeURIComponent(sessionCookie.slice(SESSION_COOKIE.length + 1))
+            : "";
+        const expiresAt = sessions.get(token);
+
+        if (!expiresAt || expiresAt <= Date.now()) {
+            sessions.delete(token);
+            return response.status(401).json({ error: "Admin login required." });
+        }
+
+        next();
+    }
+
+    const limitAiSuggestions = createRateLimiter(
+        30,
+        10 * 60 * 1000,
+        "Too many AI requests. Please wait a few minutes and try again."
+    );
+    const limitComplaintSubmissions = createRateLimiter(
+        10,
+        10 * 60 * 1000,
+        "Too many complaints were submitted from this connection. Please try again later."
+    );
+    const limitTrackingRequests = createRateLimiter(
+        30,
+        10 * 60 * 1000,
+        "Too many tracking attempts. Please wait a few minutes and try again."
+    );
+    const limitAdminLogins = createRateLimiter(
+        10,
+        15 * 60 * 1000,
+        "Too many login attempts. Please wait 15 minutes and try again."
+    );
+
+    app.get("/api/health", (request, response) => {
+        response.json({ status: "ok" });
+    });
+
+    app.get("/api/config", (request, response) => {
+        response.json({ photoUploadsEnabled });
+    });
+
+    app.post("/api/ai/suggest", limitAiSuggestions, (request, response) => {
+        const { description } = request.body || {};
+        if (
+            typeof description !== "string" ||
+            description.trim().length === 0 ||
+            description.length > 5000
+        ) {
+            return response.status(400).json({
+                error: "Enter a complaint description up to 5000 characters."
+            });
+        }
+
+        response.json(analyzeComplaint(description.trim()));
+    });
+
+    app.post(
+        "/api/complaints",
+        limitComplaintSubmissions,
+        async (request, response) => {
+        const body = request.body;
+        const requiredFields = [
+            "studentName",
+            "rollNumber",
+            "category",
+            "categoryCode",
+            "building",
+            "floor",
+            "description"
+        ];
+
+        if (
+            !body ||
+            requiredFields.some(
+                (field) =>
+                    typeof body[field] !== "string" ||
+                    body[field].trim().length === 0
+            )
+        ) {
+            return response.status(400).json({
+                error: "Please provide all required complaint details."
+            });
+        }
+
+        if (!CATEGORIES.has(body.categoryCode)) {
+            return response.status(400).json({ error: "Invalid category." });
+        }
+
+        if (
+            body.categoryCode === "other" &&
+            (typeof body.otherCategory !== "string" ||
+                body.otherCategory.trim().length === 0)
+        ) {
+            return response.status(400).json({
+                error: "Please enter the custom complaint category."
+            });
+        }
+
+        if (!photoUploadsEnabled && (body.photoData || body.photoName)) {
+            return response.status(400).json({
+                error: "Photo uploads are temporarily disabled on the public demo."
+            });
+        }
+
+        const maxLengths = {
+            studentName: 100,
+            rollNumber: 50,
+            category: 100,
+            otherCategory: 100,
+            building: 120,
+            floor: 80,
+            roomNumber: 50,
+            description: 5000,
+            priority: 10,
+            department: 120,
+            photoName: 255,
+            photoData: 6_000_000
+        };
+
+        for (const [field, maxLength] of Object.entries(maxLengths)) {
+            if (
+                body[field] !== undefined &&
+                (typeof body[field] !== "string" ||
+                    body[field].length > maxLength)
+            ) {
+                return response.status(400).json({
+                    error: `${field} is too long or has an invalid value.`
+                });
+            }
+        }
+
+        const createdAt = Date.now();
+        const complaintId = await generateComplaintId(
+            new Date(createdAt).getFullYear()
+        );
+        const aiAssessment = analyzeComplaint(body.description.trim());
+        const similarComplaintsCount = await countSimilarComplaints(queryAll, {
+            categoryCode: body.categoryCode,
+            building: body.building.trim(),
+            description: body.description.trim()
+        });
+        const complaint = {
+            complaintId,
+            studentName: body.studentName.trim(),
+            rollNumber: body.rollNumber.trim(),
+            category:
+                body.categoryCode === "other"
+                    ? `Other - ${String(body.otherCategory || "").trim()}`
+                    : CATEGORY_DETAILS[body.categoryCode].name,
+            categoryCode: body.categoryCode,
+            otherCategory: String(body.otherCategory || "").trim(),
+            building: body.building.trim(),
+            otherBuilding: String(body.otherBuilding || "").trim(),
+            floor: body.floor.trim(),
+            otherFloor: String(body.otherFloor || "").trim(),
+            roomNumber: String(body.roomNumber || "").trim(),
+            description: body.description.trim(),
+            priority: aiAssessment.priority,
+            department: CATEGORY_DETAILS[body.categoryCode].department,
+            aiAssessment: {
+                ...aiAssessment,
+                similarComplaintsCount
+            },
+            status: "Submitted",
+            date: new Date(createdAt).toLocaleString("en-IN"),
+            createdAt,
+            photoName: String(body.photoName || "").trim(),
+            photoData: String(body.photoData || ""),
+            adminRemark: "",
+            remarkUpdatedAt: null,
+            feedbackRating: 0,
+            feedbackComment: "",
+            feedbackSubmittedAt: null
+        };
+
+        await queryRun(
+            "INSERT INTO complaints (complaint_id, complaint_json) VALUES (?, ?)",
+            [complaintId, JSON.stringify(complaint)]
+        );
+
+        response.status(201).json(complaint);
+        }
+    );
+
+    app.post(
+        "/api/complaints/:complaintId/track",
+        limitTrackingRequests,
+        async (request, response) => {
+        const complaint = await getComplaint(request.params.complaintId.toUpperCase());
+
+        const { rollNumber } = request.body || {};
+        if (
+            !complaint ||
+            typeof rollNumber !== "string" ||
+            rollNumber.trim().toLowerCase() !== complaint.rollNumber.toLowerCase()
+        ) {
+            return response.status(404).json({ error: "Complaint not found." });
+        }
+
+        response.json(getPublicTrackingDetails(complaint));
+        }
+    );
+
+    app.patch("/api/complaints/:complaintId/feedback", async (request, response) => {
+        const complaint = await getComplaint(request.params.complaintId.toUpperCase());
+
+        const { rollNumber } = request.body || {};
+        if (
+            !complaint ||
+            typeof rollNumber !== "string" ||
+            rollNumber.trim().toLowerCase() !== complaint.rollNumber.toLowerCase()
+        ) {
+            return response.status(404).json({ error: "Complaint not found." });
+        }
+
+        const { rating, comment = "" } = request.body || {};
+        if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+            return response.status(400).json({ error: "Rating must be from 1 to 5." });
+        }
+        if (complaint.status !== "Resolved") {
+            return response.status(409).json({
+                error: "Feedback can be submitted after the complaint is resolved."
+            });
+        }
+        if (complaint.feedbackRating > 0) {
+            return response.status(409).json({
+                error: "Feedback has already been submitted."
+            });
+        }
+        if (typeof comment !== "string" || comment.length > 2000) {
+            return response.status(400).json({ error: "Feedback comment is too long." });
+        }
+
+        complaint.feedbackRating = rating;
+        complaint.feedbackComment = comment.trim();
+        complaint.feedbackSubmittedAt = Date.now();
+        await saveComplaint(complaint);
+
+        response.json(getPublicTrackingDetails(complaint));
+    });
+
+    app.post("/api/admin/login", limitAdminLogins, (request, response) => {
+        const { username, password } = request.body || {};
+        if (username !== adminUsername || password !== adminPassword) {
+            return response.status(401).json({
+                error: "Invalid username or password."
+            });
+        }
+
+        const token = crypto.randomBytes(32).toString("hex");
+        sessions.set(token, Date.now() + SESSION_MAX_AGE_MS);
+        response.setHeader(
+            "Set-Cookie",
+            `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_MS / 1000}${isProduction ? "; Secure" : ""}`
+        );
+        response.json({ authenticated: true });
+    });
+
+    app.get("/api/admin/session", requireAdmin, (request, response) => {
+        response.json({ authenticated: true });
+    });
+
+    app.post("/api/admin/logout", requireAdmin, (request, response) => {
+        const cookies = request.headers.cookie || "";
+        const sessionCookie = cookies
+            .split(";")
+            .map((part) => part.trim())
+            .find((part) => part.startsWith(`${SESSION_COOKIE}=`));
+        if (sessionCookie) {
+            sessions.delete(
+                decodeURIComponent(sessionCookie.slice(SESSION_COOKIE.length + 1))
+            );
+        }
+
+        response.setHeader(
+            "Set-Cookie",
+            `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+        );
+        response.json({ authenticated: false });
+    });
+
+    app.get("/api/admin/complaints", requireAdmin, async (request, response) => {
+        const complaints = (await queryAll(
+            "SELECT complaint_json FROM complaints ORDER BY id DESC",
+            []
+        ))
+            .map((row) => JSON.parse(row.complaint_json));
+        response.json(complaints);
+    });
+
+    app.patch(
+        "/api/admin/complaints/:complaintId",
+        requireAdmin,
+        async (request, response) => {
+            const complaint = await getComplaint(request.params.complaintId.toUpperCase());
+            if (!complaint) {
+                return response.status(404).json({ error: "Complaint not found." });
+            }
+
+            const { status, adminRemark, categoryCode } = request.body || {};
+            let updatedAnyField = false;
+            if (status !== undefined) {
+                if (!STATUSES.has(status)) {
+                    return response.status(400).json({ error: "Invalid status." });
+                }
+                complaint.status = status;
+                updatedAnyField = true;
+            }
+            if (adminRemark !== undefined) {
+                if (typeof adminRemark !== "string" || adminRemark.length > 2000) {
+                    return response.status(400).json({
+                        error: "Admin remark is too long or invalid."
+                    });
+                }
+                complaint.adminRemark = adminRemark.trim();
+                complaint.remarkUpdatedAt = Date.now();
+                updatedAnyField = true;
+            }
+            if (categoryCode !== undefined) {
+                if (typeof categoryCode !== "string" || !CATEGORIES.has(categoryCode)) {
+                    return response.status(400).json({ error: "Invalid complaint category." });
+                }
+
+                const category = CATEGORY_DETAILS[categoryCode];
+                complaint.categoryCode = categoryCode;
+                complaint.category = category.name;
+                complaint.department = category.department;
+                complaint.aiAssessment = {
+                    ...(complaint.aiAssessment || {}),
+                    reviewedByAdmin: true,
+                    reviewedCategoryCode: categoryCode
+                };
+                updatedAnyField = true;
+            }
+            if (!updatedAnyField) {
+                return response.status(400).json({
+                    error: "Provide a status, category, or admin remark to update."
+                });
+            }
+
+            await saveComplaint(complaint);
+            response.json(complaint);
+        }
+    );
+
+    const publicFiles = {
+        "/": "index.html",
+        "/index.html": "index.html",
+        "/style.css": "style.css",
+        "/script.js": "script.js",
+        "/admin.html": "admin.html",
+        "/admin.css": "admin.css",
+        "/admin.js": "admin.js"
+    };
+
+    for (const [route, fileName] of Object.entries(publicFiles)) {
+        app.get(route, (request, response, next) => {
+            response.sendFile(path.join(__dirname, fileName), (error) => {
+                if (error) {
+                    next(error);
+                }
+            });
+        });
+    }
+
+    app.use((error, request, response, next) => {
+        if (response.headersSent) {
+            return next(error);
+        }
+
+        if (error.type === "entity.too.large") {
+            return response.status(413).json({
+                error: "Request is too large. Please use a smaller photo."
+            });
+        }
+
+        if (error instanceof SyntaxError && error.status === 400) {
+            return response.status(400).json({ error: "Invalid JSON request." });
+        }
+
+        console.error(error);
+        response.status(500).json({ error: "An unexpected server error occurred." });
+    });
+
+    return app;
+}
+
+if (require.main === module) {
+    const app = createApp();
+    app.locals.ready
+        .then(() => {
+            app.listen(PORT, () => {
+                console.log(`Smart Campus is running at http://localhost:${PORT}`);
+            });
+        })
+        .catch(async (error) => {
+            console.error("Smart Campus database could not be initialized:", error);
+            await app.locals.closeDatabase();
+            process.exitCode = 1;
+        });
+}
+
+module.exports = { createApp };
