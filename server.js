@@ -1161,7 +1161,7 @@ function createApp(options = {}) {
                 : demoMode
                   ? "sqlite-temp"
                   : "sqlite",
-            persistent: usePostgres,
+            persistent: !demoMode,
             revision: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || null,
             uptimeSeconds: Math.round(process.uptime())
         });
