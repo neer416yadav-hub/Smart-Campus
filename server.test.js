@@ -577,3 +577,72 @@ test("database connection errors are explained in plain language", () => {
         /nothing is accepting connections/
     );
 });
+
+test("an admin session survives a request handled by another instance", async (t) => {
+    // Serverless platforms create a new process at any time, so a login made
+    // on one instance has to be accepted by the next one. Two apps sharing the
+    // same credentials stand in for two instances here.
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-campus-session-"));
+    const databasePath = path.join(directory, "test.sqlite");
+    const options = {
+        databasePath,
+        adminUsername: "session-admin",
+        adminPassword: "session-password"
+    };
+
+    const first = createApp(options);
+    const second = createApp(options);
+    const firstServer = first.listen(0);
+    const secondServer = second.listen(0);
+
+    t.after(async () => {
+        for (const server of [firstServer, secondServer]) {
+            await new Promise((resolve, reject) => {
+                server.close((error) => (error ? reject(error) : resolve()));
+            });
+        }
+        await first.locals.closeDatabase();
+        await second.locals.closeDatabase();
+        fs.rmSync(directory, { recursive: true, force: true });
+    });
+
+    await Promise.all([
+        new Promise((resolve) => firstServer.once("listening", resolve)),
+        new Promise((resolve) => secondServer.once("listening", resolve))
+    ]);
+
+    const firstUrl = `http://127.0.0.1:${firstServer.address().port}`;
+    const secondUrl = `http://127.0.0.1:${secondServer.address().port}`;
+
+    const loginResponse = await fetch(`${firstUrl}/api/admin/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            username: "session-admin",
+            password: "session-password"
+        })
+    });
+    assert.equal(loginResponse.status, 200);
+
+    const rawCookie = loginResponse.headers.get("set-cookie");
+    assert.ok(rawCookie, "login must set a session cookie");
+    const cookie = rawCookie.split(";")[0];
+
+    const sessionOnOtherInstance = await fetch(`${secondUrl}/api/admin/session`, {
+        headers: { cookie }
+    });
+    assert.equal(sessionOnOtherInstance.status, 200);
+    assert.equal((await sessionOnOtherInstance.json()).authenticated, true);
+
+    const adminData = await fetch(`${secondUrl}/api/admin/complaints`, {
+        headers: { cookie }
+    });
+    assert.equal(adminData.status, 200);
+
+    // A tampered signature must be rejected.
+    const tampered = cookie.replace(/\.[a-f0-9]{8}/, ".deadbeef");
+    const tamperedResponse = await fetch(`${secondUrl}/api/admin/session`, {
+        headers: { cookie: tampered }
+    });
+    assert.equal((await tamperedResponse.json()).authenticated, false);
+});

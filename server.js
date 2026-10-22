@@ -946,6 +946,8 @@ function createApp(options = {}) {
         databaseReady = Promise.resolve();
     }
 
+    // Only used to remember tokens revoked by logout on this instance.
+    // Valid sessions are verified by signature, not by looking them up here.
     const sessions = new Map();
     const app = express();
     app.disable("x-powered-by");
@@ -1052,16 +1054,69 @@ function createApp(options = {}) {
             : "";
     }
 
+    // Sessions are signed instead of kept in memory so that a login still
+    // works when the next request lands on a different serverless instance.
+    // Changing ADMIN_PASSWORD invalidates every existing session.
+    const sessionSecret = crypto
+        .createHash("sha256")
+        .update(`smart-campus-session:${adminUsername}:${adminPassword}`)
+        .digest();
+
+    function signSessionExpiry(expiresAt) {
+        const payload = String(expiresAt);
+        const signature = crypto
+            .createHmac("sha256", sessionSecret)
+            .update(payload)
+            .digest("hex");
+
+        return `${payload}.${signature}`;
+    }
+
+    function verifySessionToken(token) {
+        if (typeof token !== "string") {
+            return null;
+        }
+
+        const separator = token.indexOf(".");
+        if (separator <= 0) {
+            return null;
+        }
+
+        const payload = token.slice(0, separator);
+        const signature = token.slice(separator + 1);
+
+        if (!/^\d+$/.test(payload) || !/^[a-f0-9]{64}$/.test(signature)) {
+            return null;
+        }
+
+        const expected = crypto
+            .createHmac("sha256", sessionSecret)
+            .update(payload)
+            .digest();
+        const provided = Buffer.from(signature, "hex");
+
+        if (
+            provided.length !== expected.length ||
+            !crypto.timingSafeEqual(provided, expected)
+        ) {
+            return null;
+        }
+
+        const expiresAt = Number(payload);
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+            return null;
+        }
+
+        return { expiresAt };
+    }
+
     function hasValidSession(request) {
         const token = readSessionToken(request);
-        const expiresAt = sessions.get(token);
-
-        if (!expiresAt || expiresAt <= Date.now()) {
-            sessions.delete(token);
+        if (!token || sessions.has(token)) {
             return false;
         }
 
-        return true;
+        return Boolean(verifySessionToken(token));
     }
 
     function requireAdmin(request, response, next) {
@@ -1416,8 +1471,8 @@ function createApp(options = {}) {
             });
         }
 
-        const token = crypto.randomBytes(32).toString("hex");
-        sessions.set(token, Date.now() + SESSION_MAX_AGE_MS);
+        const expiresAt = Date.now() + SESSION_MAX_AGE_MS;
+        const token = signSessionExpiry(expiresAt);
         response.setHeader(
             "Set-Cookie",
             `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_MS / 1000}${isProduction ? "; Secure" : ""}`
@@ -1432,15 +1487,19 @@ function createApp(options = {}) {
     });
 
     app.post("/api/admin/logout", requireAdmin, (request, response) => {
-        const cookies = request.headers.cookie || "";
-        const sessionCookie = cookies
-            .split(";")
-            .map((part) => part.trim())
-            .find((part) => part.startsWith(`${SESSION_COOKIE}=`));
-        if (sessionCookie) {
-            sessions.delete(
-                decodeURIComponent(sessionCookie.slice(SESSION_COOKIE.length + 1))
-            );
+        const token = readSessionToken(request);
+        const session = verifySessionToken(token);
+
+        // Signing is stateless, so logout keeps a short-lived revocation entry
+        // for this instance and clears the cookie on the browser.
+        if (session) {
+            sessions.set(token, session.expiresAt);
+        }
+
+        for (const [revokedToken, expiresAt] of sessions) {
+            if (expiresAt <= Date.now()) {
+                sessions.delete(revokedToken);
+            }
         }
 
         response.setHeader(
