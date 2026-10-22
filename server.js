@@ -8,7 +8,13 @@ const { Pool } = require("pg");
 // Vercel runs the app as short-lived serverless functions. They have no
 // persistent disk, so a hosted database is required for real data. When none
 // is configured we fall back to SQLite in /tmp so the demo still boots.
-const IS_SERVERLESS = process.env.VERCEL === "1";
+// The api/index.js entry point passes `serverless: true` explicitly, so this
+// does not depend on any particular platform environment variable.
+const DEFAULT_DATABASE_PATH = path.join(
+    __dirname,
+    "data",
+    "smart-campus.sqlite"
+);
 
 // node:sqlite is only needed for local use. Loading it lazily keeps
 // PostgreSQL-only deployments working on Node builds without that module.
@@ -23,11 +29,6 @@ function loadSqlite() {
 }
 
 const PORT = Number(process.env.PORT) || 3000;
-const DATABASE_PATH =
-    process.env.DATABASE_PATH ||
-    (IS_SERVERLESS
-        ? path.join(os.tmpdir(), "smart-campus.sqlite")
-        : path.join(__dirname, "data", "smart-campus.sqlite"));
 const SESSION_COOKIE = "smartCampusAdminSession";
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const CATEGORIES = new Set([
@@ -867,11 +868,17 @@ async function initializePostgres(
 
 
 function createApp(options = {}) {
-    const databasePath = options.databasePath || DATABASE_PATH;
+    const serverless = options.serverless ?? false;
+    const databasePath =
+        options.databasePath ||
+        process.env.DATABASE_PATH ||
+        (serverless
+            ? path.join(os.tmpdir(), "smart-campus.sqlite")
+            : DEFAULT_DATABASE_PATH);
     const isProduction = process.env.NODE_ENV === "production";
     const databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
     const usePostgres = Boolean(databaseUrl);
-    const demoMode = IS_SERVERLESS && !usePostgres;
+    const demoMode = serverless && !usePostgres;
 
     if (
         isProduction &&
@@ -896,7 +903,7 @@ function createApp(options = {}) {
         );
     }
 
-    if (IS_SERVERLESS && !process.env.ADMIN_PASSWORD) {
+    if (serverless && !process.env.ADMIN_PASSWORD) {
         console.warn(
             "[smart-campus] Vercel demo mode: ADMIN_PASSWORD is not set, so the demo " +
                 "password is in use. Set ADMIN_USERNAME and ADMIN_PASSWORD (12+ characters) " +
@@ -1100,6 +1107,7 @@ function createApp(options = {}) {
                   ? "sqlite-temp"
                   : "sqlite",
             persistent: usePostgres,
+            revision: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || null,
             uptimeSeconds: Math.round(process.uptime())
         });
     });

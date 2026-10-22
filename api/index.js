@@ -11,7 +11,7 @@ let app = null;
 let startupError = null;
 
 try {
-    app = createApp();
+    app = createApp({ serverless: true });
 } catch (error) {
     startupError = error;
 }
