@@ -1,8 +1,14 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const express = require("express");
 const { Pool } = require("pg");
+
+// Vercel runs the app as short-lived serverless functions. They have no
+// persistent disk, so a hosted database is required for real data. When none
+// is configured we fall back to SQLite in /tmp so the demo still boots.
+const IS_SERVERLESS = process.env.VERCEL === "1";
 
 // node:sqlite is only needed for local use. Loading it lazily keeps
 // PostgreSQL-only deployments working on Node builds without that module.
@@ -19,7 +25,9 @@ function loadSqlite() {
 const PORT = Number(process.env.PORT) || 3000;
 const DATABASE_PATH =
     process.env.DATABASE_PATH ||
-    path.join(__dirname, "data", "smart-campus.sqlite");
+    (IS_SERVERLESS
+        ? path.join(os.tmpdir(), "smart-campus.sqlite")
+        : path.join(__dirname, "data", "smart-campus.sqlite"));
 const SESSION_COOKIE = "smartCampusAdminSession";
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const CATEGORIES = new Set([
@@ -863,8 +871,11 @@ function createApp(options = {}) {
     const isProduction = process.env.NODE_ENV === "production";
     const databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
     const usePostgres = Boolean(databaseUrl);
+    const demoMode = IS_SERVERLESS && !usePostgres;
+
     if (
         isProduction &&
+        !demoMode &&
         (
             !process.env.ADMIN_USERNAME ||
             !process.env.ADMIN_PASSWORD ||
@@ -874,6 +885,22 @@ function createApp(options = {}) {
     ) {
         throw new Error(
             "Production requires DATABASE_URL, ADMIN_USERNAME, and an ADMIN_PASSWORD of at least 12 characters."
+        );
+    }
+
+    if (demoMode) {
+        console.warn(
+            "[smart-campus] Vercel demo mode: DATABASE_URL is not set, so complaints " +
+                "are stored in a temporary SQLite file in /tmp. The data is lost when " +
+                "the function instance recycles. Set DATABASE_URL for persistent storage."
+        );
+    }
+
+    if (IS_SERVERLESS && !process.env.ADMIN_PASSWORD) {
+        console.warn(
+            "[smart-campus] Vercel demo mode: ADMIN_PASSWORD is not set, so the demo " +
+                "password is in use. Set ADMIN_USERNAME and ADMIN_PASSWORD (12+ characters) " +
+                "before sharing this URL."
         );
     }
 
@@ -1067,7 +1094,12 @@ function createApp(options = {}) {
     app.get("/api/health", (request, response) => {
         response.json({
             status: "ok",
-            database: usePostgres ? "postgres" : "sqlite",
+            database: usePostgres
+                ? "postgres"
+                : demoMode
+                  ? "sqlite-temp"
+                  : "sqlite",
+            persistent: usePostgres,
             uptimeSeconds: Math.round(process.uptime())
         });
     });

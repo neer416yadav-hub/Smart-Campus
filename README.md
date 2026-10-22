@@ -118,13 +118,15 @@ Vercel runs serverless functions, so `server.js` (which calls `app.listen`) cann
 - `api/index.js` — a thin Vercel handler that builds the Express app once per instance and forwards every request to it.
 - `vercel.json` — routes all traffic to that handler and bundles the HTML, CSS, JS and image files with it.
 
-Deploy with **New Project → import the repository**. The defaults work, but you must add these environment variables under **Settings → Environment Variables** before the first request succeeds:
+Deploy with **New Project → import the repository**. The defaults work, but you should add these environment variables under **Settings → Environment Variables**:
 
-- `DATABASE_URL` = your PostgreSQL connection string (**required on Vercel** — the filesystem is read-only apart from `/tmp`, so SQLite cannot be used there)
+- `DATABASE_URL` = your PostgreSQL connection string (recommended — without it the app runs in demo mode, see below)
 - `ADMIN_USERNAME` = your admin login name
 - `ADMIN_PASSWORD` = a unique password of at least 12 characters
 
-If a variable is missing the function returns a JSON error explaining exactly which one, instead of an opaque `500 FUNCTION_INVOCATION_FAILED`. Check it at `https://<project>.vercel.app/api/health`.
+**Demo mode (no environment variables).** Vercel's filesystem is read-only apart from `/tmp`, so if `DATABASE_URL` is missing the app falls back to a temporary SQLite file in `/tmp` and starts with the default demo admin login (`admin` / `admin123`). That keeps the page reachable, but anything submitted is lost when the function instance recycles, and different instances do not share data. Use it only to preview the interface — add `DATABASE_URL` and a real `ADMIN_PASSWORD` before sharing the URL. `/api/health` reports `"database": "sqlite-temp"` and `"persistent": false` while demo mode is active.
+
+If a required variable is missing outside demo mode, the function returns a JSON error explaining exactly which one, instead of an opaque `500 FUNCTION_INVOCATION_FAILED`. Check it at `https://<project>.vercel.app/api/health`.
 
 A note on platform choice: Render (a long-running server) fits this app better than Vercel, because Vercel spins a new instance at any time and cannot keep a local SQLite file. On Vercel, always use a hosted PostgreSQL database such as Supabase or Neon.
 
