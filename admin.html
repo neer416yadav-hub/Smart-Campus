@@ -35,6 +35,11 @@
 
 
 <body>
+<script>
+    if (localStorage.getItem('userType') !== 'admin') {
+        window.location.href = 'login.html';
+    }
+</script>
 
 
     <!-- LOGIN PAGE -->
@@ -171,7 +176,7 @@
 
             <div class="header-right">
 
-                <span class="admin-badge">
+                <span class="admin-badge" id="roleBadge">
                     ADMIN
                 </span>
 

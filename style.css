@@ -764,6 +764,14 @@ body {
     background: var(--surface-solid);
 }
 
+.form-group input[type="file"],
+.form-group .file-input {
+    padding: 10px 12px;
+    border: 1px dashed var(--border-strong);
+    background: var(--surface-alt);
+    cursor: pointer;
+}
+
 .form-group textarea {
     resize: vertical;
     min-height: 120px;
@@ -778,6 +786,15 @@ body {
     background-repeat: no-repeat;
     background-position: right 14px center;
     padding-right: 36px;
+}
+
+[data-theme="dark"] .form-group select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b4c1d6' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+
+[data-theme="dark"] .form-group select option {
+    background: var(--surface-solid);
+    color: var(--text);
 }
 
 .input-shell select {
@@ -847,6 +864,21 @@ body {
 [data-theme="dark"] .priority-preview[data-priority="High"] { color: #f87171; }
 [data-theme="dark"] .priority-preview[data-priority="Medium"] { color: #fbbf24; }
 [data-theme="dark"] .priority-preview[data-priority="Low"] { color: #34d399; }
+
+[data-theme="dark"] .form-group > input,
+[data-theme="dark"] .form-group > select,
+[data-theme="dark"] .form-group > textarea,
+[data-theme="dark"] .input-shell,
+[data-theme="dark"] .form-group .file-input {
+    background: var(--surface-solid);
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+[data-theme="dark"] select option {
+    background: var(--surface-solid);
+    color: var(--text);
+}
 
 
 /* ==========================================

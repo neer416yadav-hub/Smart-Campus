@@ -49,10 +49,19 @@ Admin dashboard (`admin.html`):
 - Username: `admin`
 - Password: `admin123`
 
-These credentials are for local testing only. The login page does not display them. Production mode refuses to start without `DATABASE_URL`, `ADMIN_USERNAME`, and an `ADMIN_PASSWORD` of at least 12 characters; set these only in the hosting provider's private environment settings.
+These credentials are for local testing only. The login page does not display them. Production mode refuses to start without `DATABASE_URL`, `ADMIN_USERNAME`, and an `ADMIN_PASSWORD` of at least 12 characters; set these only in the hosting provider's private environment settings. There is no separate teacher login: only the configured admin account can open the admin dashboard.
+
+## Student accounts
+
+Students create an account on the login page (`/login.html`) with their name, roll number, and a password of at least 8 characters. Accounts are stored in the `students` table, and passwords are kept only as salted scrypt hashes. Logging in sets a signed, HttpOnly `smartCampusStudentSession` cookie. `GET /api/student/complaints` returns only the complaints submitted with that account's roll number, and the cookie is tied to the stored password hash so replacing a password invalidates old sessions. Registration and login are rate limited. The admin dashboard is not accessible with a student account.
 
 ## Backend API
 
+- `POST /api/student/register` — create a student account and sign in
+- `POST /api/student/login` — sign in with roll number and password
+- `POST /api/student/logout` — clear the student session cookie
+- `GET /api/student/session` — check whether a student is signed in
+- `GET /api/student/complaints` — complaints belonging to the signed-in student (student session required)
 - `POST /api/ai/suggest` — suggest a complaint category, department, and priority from its description
 - `POST /api/complaints` — create a complaint
 - `POST /api/complaints/:complaintId/track` — check tracking details using the complaint ID and roll number; private student details are not returned

@@ -578,6 +578,195 @@ test("database connection errors are explained in plain language", () => {
     );
 });
 
+test("student accounts verify passwords and only expose their own complaints", async (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-campus-student-"));
+    const app = createApp({
+        databasePath: path.join(directory, "test.sqlite"),
+        adminUsername: "test-admin",
+        adminPassword: "test-password"
+    });
+    const server = app.listen(0);
+
+    t.after(async () => {
+        await new Promise((resolve, reject) => {
+            server.close((error) => (error ? reject(error) : resolve()));
+        });
+        app.locals.closeDatabase();
+        fs.rmSync(directory, { recursive: true, force: true });
+    });
+
+    await new Promise((resolve) => server.once("listening", resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    async function post(pathname, body, cookie) {
+        const headers = { "Content-Type": "application/json" };
+        if (cookie) {
+            headers.Cookie = cookie;
+        }
+        return fetch(`${baseUrl}${pathname}`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body)
+        });
+    }
+
+    const shortPassword = await post("/api/student/register", {
+        studentName: "Short Pass",
+        rollNumber: "CS-999",
+        password: "short"
+    });
+    assert.equal(shortPassword.status, 400);
+
+    const registerA = await post("/api/student/register", {
+        studentName: "Asha",
+        rollNumber: "CS-100",
+        password: "strong-pass-1"
+    });
+    assert.equal(registerA.status, 201);
+    const registeredA = await registerA.json();
+    assert.equal(registeredA.authenticated, true);
+    assert.equal(registeredA.rollNumber, "CS-100");
+    const cookieA = registerA.headers.get("set-cookie").split(";")[0];
+
+    const duplicate = await post("/api/student/register", {
+        studentName: "Asha Again",
+        rollNumber: "cs-100",
+        password: "another-pass-1"
+    });
+    assert.equal(duplicate.status, 409);
+
+    const wrongPassword = await post("/api/student/login", {
+        rollNumber: "CS-100",
+        password: "not-the-password"
+    });
+    assert.equal(wrongPassword.status, 401);
+
+    const unknownStudent = await post("/api/student/login", {
+        rollNumber: "CS-404",
+        password: "strong-pass-1"
+    });
+    assert.equal(unknownStudent.status, 401);
+
+    const registerB = await post("/api/student/register", {
+        studentName: "Bilal",
+        rollNumber: "CS-200",
+        password: "strong-pass-2"
+    });
+    assert.equal(registerB.status, 201);
+    const cookieB = registerB.headers.get("set-cookie").split(";")[0];
+
+    function complaintPayload(rollNumber, description) {
+        return {
+            studentName: "Student",
+            rollNumber,
+            category: "Wi-Fi / Internet Issue",
+            categoryCode: "wifi",
+            building: "Engineering",
+            floor: "1st Floor",
+            roomNumber: "Lab 101",
+            description
+        };
+    }
+
+    const complaintA = await post(
+        "/api/complaints",
+        complaintPayload("CS-100", "Wi-Fi is not working for CS-100.")
+    );
+    assert.equal(complaintA.status, 201);
+    const createdA = await complaintA.json();
+
+    const complaintB = await post(
+        "/api/complaints",
+        complaintPayload("CS-200", "Wi-Fi is not working for CS-200.")
+    );
+    assert.equal(complaintB.status, 201);
+    const createdB = await complaintB.json();
+
+    const noSession = await fetch(`${baseUrl}/api/student/complaints`);
+    assert.equal(noSession.status, 401);
+
+    const listA = await fetch(`${baseUrl}/api/student/complaints`, {
+        headers: { Cookie: cookieA }
+    });
+    assert.equal(listA.status, 200);
+    const complaintsA = await listA.json();
+    assert.equal(complaintsA.length, 1);
+    assert.equal(complaintsA[0].complaintId, createdA.complaintId);
+    assert.equal("photoData" in complaintsA[0], false);
+
+    const listB = await fetch(`${baseUrl}/api/student/complaints`, {
+        headers: { Cookie: cookieB }
+    });
+    const complaintsB = await listB.json();
+    assert.equal(complaintsB.length, 1);
+    assert.equal(complaintsB[0].complaintId, createdB.complaintId);
+
+    // A token signed with the old hard-coded secret must not be accepted.
+    const forgedPayload = Buffer.from(
+        JSON.stringify({
+            rollKey: "cs-100",
+            rollNumber: "CS-100",
+            studentName: "Asha",
+            pv: "0".repeat(16),
+            expiresAt: Date.now() + 60_000
+        })
+    ).toString("base64url");
+    const forgedSignature = require("node:crypto")
+        .createHmac("sha256", "smart-campus-student-session")
+        .update(forgedPayload)
+        .digest("hex");
+    const forged = await fetch(`${baseUrl}/api/student/complaints`, {
+        headers: {
+            Cookie: `smartCampusStudentSession=${encodeURIComponent(`${forgedPayload}.${forgedSignature}`)}`
+        }
+    });
+    assert.equal(forged.status, 401);
+
+    const tamperedCookie = `${cookieA.slice(0, -4)}dead`;
+    const tampered = await fetch(`${baseUrl}/api/student/session`, {
+        headers: { Cookie: tamperedCookie }
+    });
+    assert.equal((await tampered.json()).authenticated, false);
+
+    const sessionA = await fetch(`${baseUrl}/api/student/session`, {
+        headers: { Cookie: cookieA }
+    });
+    const sessionAData = await sessionA.json();
+    assert.equal(sessionAData.authenticated, true);
+    assert.equal(sessionAData.rollNumber, "CS-100");
+
+    const teacherLogin = await post("/api/admin/login", {
+        username: "teacher",
+        password: "teacher123"
+    });
+    assert.equal(teacherLogin.status, 401);
+
+    const adminLogin = await post("/api/admin/login", {
+        username: "test-admin",
+        password: "test-password"
+    });
+    assert.equal(adminLogin.status, 200);
+    const adminCookie = adminLogin.headers.get("set-cookie").split(";")[0];
+
+    const adminSession = await fetch(`${baseUrl}/api/admin/session`, {
+        headers: { Cookie: adminCookie }
+    });
+    const adminSessionData = await adminSession.json();
+    assert.equal(adminSessionData.authenticated, true);
+    assert.equal(adminSessionData.role, "admin");
+
+    const logout = await fetch(`${baseUrl}/api/admin/logout`, {
+        method: "POST",
+        headers: { Cookie: adminCookie }
+    });
+    assert.equal(logout.status, 200);
+
+    const afterLogout = await fetch(`${baseUrl}/api/admin/session`, {
+        headers: { Cookie: adminCookie }
+    });
+    assert.equal((await afterLogout.json()).authenticated, false);
+});
+
 test("an admin session survives a request handled by another instance", async (t) => {
     // Serverless platforms create a new process at any time, so a login made
     // on one instance has to be accepted by the next one. Two apps sharing the

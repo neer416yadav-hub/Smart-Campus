@@ -53,8 +53,69 @@ document.addEventListener("DOMContentLoaded", function () {
     setupTracking();
     setupStats();
     setupHistory();
+    setupStudentAuth();
 
 });
+
+function setupStudentAuth() {
+    const loadBtn = document.getElementById('loadMyComplaintsBtn');
+    const rollNumber = localStorage.getItem('rollNumber');
+
+    if (localStorage.getItem('userType') === 'student' && rollNumber) {
+        setTimeout(async function() {
+            try {
+                const complaints = await requestApi('/api/student/complaints');
+                const list = document.getElementById('myComplaintsList');
+                if (!list) return;
+                if (!complaints.length) {
+                    list.innerHTML = '<div class="empty-state"><span>🗂️</span>No complaints found.</div>';
+                    return;
+                }
+                list.innerHTML = complaints.map(function(c) {
+                    return '<div class="history-item"><div class="history-item-main"><div class="history-item-id">' + safe(c.complaintId) + '</div><div class="history-item-meta">' + safe(c.category) + ' · ' + safe(c.status) + '</div></div><div class="history-item-actions"><button type="button" class="icon-button" title="Track" onclick="document.getElementById(\'trackingId\').value=\'' + safe(c.complaintId) + '\'; trackComplaint(); document.getElementById(\'trackingSection\').scrollIntoView({behavior:\'smooth\'});">🔎</button></div></div>';
+                }).join('');
+            } catch (e) {
+                console.error(e);
+            }
+        }, 500);
+    }
+    
+    if (loadBtn) {
+        loadBtn.addEventListener('click', async function() {
+            try {
+                const complaints = await requestApi('/api/student/complaints');
+                const list = document.getElementById('myComplaintsList');
+                if (!list) return;
+                if (!complaints.length) {
+                    list.innerHTML = '<div class="empty-state"><span>🗂️</span>No complaints found.</div>';
+                    return;
+                }
+                list.innerHTML = complaints.map(function(c) {
+                    return '<div class="history-item"><div class="history-item-main"><div class="history-item-id">' + safe(c.complaintId) + '</div><div class="history-item-meta">' + safe(c.category) + ' · ' + safe(c.status) + '</div></div><div class="history-item-actions"><button type="button" class="icon-button" title="Track" onclick="document.getElementById(\'trackingId\').value=\'' + safe(c.complaintId) + '\'; trackComplaint(); document.getElementById(\'trackingSection\').scrollIntoView({behavior:\'smooth\'});">🔎</button></div></div>';
+                }).join('');
+                notify('Loaded ' + complaints.length + ' complaint(s)', 'success');
+            } catch (e) {
+                notify(e.message, 'error');
+            }
+        });
+    }
+}
+
+async function logoutStudent(event) {
+    if (event) {
+        event.preventDefault();
+    }
+
+    try {
+        await requestApi('/api/student/logout', { method: 'POST' });
+    } catch (error) {
+        console.error(error);
+    } finally {
+        localStorage.removeItem('userType');
+        localStorage.removeItem('rollNumber');
+        window.location.href = 'login.html';
+    }
+}
 
 async function setupPhotoUploadAvailability() {
     const photo = document.getElementById("photo");
@@ -104,7 +165,9 @@ function setupDescriptionMeta() {
         }
 
         if (preview) {
-            const priority = text ? detectPriority(text, "") : "Low";
+            const categoryEl = document.getElementById("category");
+            const categoryCode = categoryEl ? categoryEl.value : "";
+            const priority = text ? detectPriority(text, categoryCode) : "Low";
             preview.setAttribute("data-priority", priority);
             preview.innerHTML = "Priority: <strong></strong>";
             preview.querySelector("strong").textContent = priority;
@@ -112,6 +175,10 @@ function setupDescriptionMeta() {
     }
 
     description.addEventListener("input", update);
+    const categoryEl = document.getElementById("category");
+    if (categoryEl) {
+        categoryEl.addEventListener("change", update);
+    }
     update();
 }
 
@@ -502,7 +569,7 @@ function setupAiSuggestion() {
             notify("AI suggestion is unavailable right now.", "error");
         } finally {
             button.disabled = false;
-            button.innerHTML = '<span class="ai-sparkle">✦</span> Get free AI suggestion';
+            button.innerHTML = '<span class="ai-sparkle">✦</span> Get AI suggestion';
         }
     });
 
@@ -696,10 +763,18 @@ function setupComplaintForm() {
                 ).value.trim();
 
 
-            const rollNumber =
+            let rollNumber =
                 document.getElementById(
                     "rollNumber"
                 ).value.trim();
+            if (localStorage.getItem('userType') === 'student' && localStorage.getItem('rollNumber')) {
+                rollNumber = localStorage.getItem('rollNumber');
+                const rnInput = document.getElementById("rollNumber");
+                if (rnInput) {
+                    rnInput.value = rollNumber;
+                    rnInput.readOnly = true;
+                }
+            }
 
 
             const categoryCode =
@@ -1506,12 +1581,8 @@ function setupTracking() {
     }
 
 
-    [input, rollInput].forEach(function (field) {
-        if (!field) {
-            return;
-        }
-
-        field.addEventListener(
+    if (input) {
+        input.addEventListener(
             "keydown",
             function (event) {
 
@@ -1526,8 +1597,29 @@ function setupTracking() {
                 }
             }
         );
+    }
+    if (rollInput) {
+        const rollShell = document.getElementById('trackingRollShell');
+        if (localStorage.getItem('userType') === 'student') {
+            if (rollShell) rollShell.style.display = 'none';
+            rollInput.style.display = 'none';
+        }
+        rollInput.addEventListener(
+            "keydown",
+            function (event) {
 
-    });
+                if (
+                    event.key === "Enter"
+                ) {
+
+                    event.preventDefault();
+
+                    trackComplaint();
+
+                }
+            }
+        );
+    }
 
 }
 
@@ -1555,15 +1647,18 @@ async function trackComplaint() {
         );
 
 
-    if (!input || !rollInput || !result) {
+    if (!input || !result) {
         return;
     }
 
 
     const id =
         input.value.trim();
-    const rollNumber =
-        rollInput.value.trim();
+    let rollNumber = rollInput ? rollInput.value.trim() : "";
+    if (localStorage.getItem('userType') === 'student' && localStorage.getItem('rollNumber')) {
+        rollNumber = localStorage.getItem('rollNumber');
+        if (rollInput) rollInput.value = rollNumber;
+    }
 
 
     const trackButton =
@@ -1572,18 +1667,28 @@ async function trackComplaint() {
         );
 
 
-    if (!id || !rollNumber) {
+    if (!id) {
 
         result.innerHTML = `
             <div class="tracking-card">
-                Please enter both your Complaint ID and roll number.
+                Please enter your Complaint ID.
             </div>
         `;
 
-        notify("Enter both the complaint ID and your roll number.", "warning");
+        notify("Enter the complaint ID.", "warning");
 
         return;
 
+    }
+    if (!rollNumber) {
+        if (rollInput) rollInput.style.display = 'block';
+        result.innerHTML = `
+            <div class="tracking-card">
+                Please enter your roll number.
+            </div>
+        `;
+        notify("Enter your roll number.", "warning");
+        return;
     }
 
 

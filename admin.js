@@ -116,12 +116,16 @@ function setupLogin() {
 
 
             try {
-                await requestApi("/api/admin/login", {
+                const res = await requestApi("/api/admin/login", {
                     method: "POST",
                     body: JSON.stringify({ username, password })
                 });
                 if (error) {
                     error.textContent = "";
+                }
+                const roleBadge = document.getElementById('roleBadge');
+                if (roleBadge && res.role) {
+                    roleBadge.textContent = res.role.toUpperCase();
                 }
                 showDashboard();
             } catch (loginError) {
@@ -147,6 +151,10 @@ async function checkLogin() {
         const session = await requestApi("/api/admin/session");
 
         if (session && session.authenticated) {
+            const roleBadge = document.getElementById('roleBadge');
+            if (roleBadge && session.role) {
+                roleBadge.textContent = session.role.toUpperCase();
+            }
             showDashboard();
             return;
         }

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Campus - Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="ui.css">
+    <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+    <style>
+        body { margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); }
+        .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .login-card { width: 100%; max-width: 420px; background: var(--surface-solid); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: var(--shadow-lg); }
+        .login-card h1 { margin: 0 0 8px; font-size: 28px; text-align: center; }
+        .login-card p { margin: 0 0 24px; text-align: center; color: var(--text-2); }
+        .role-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+        .role-btn { padding: 12px; border: 1px solid var(--border-strong); background: var(--surface-alt); color: var(--text); border-radius: 10px; cursor: pointer; font-weight: 600; }
+        .role-btn.active { background: var(--brand-grad); color: white; border-color: transparent; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 600; }
+        .form-group input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-solid); color: var(--text); box-sizing: border-box; }
+        .login-btn { width: 100%; padding: 12px; background: var(--brand-grad); color: white; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; }
+        .switch-mode { text-align: center; margin: 12px 0 0; }
+        .link-btn { background: none; border: none; color: var(--brand-1); font-weight: 600; cursor: pointer; padding: 0; }
+        .login-message { min-height: 20px; margin: 12px 0 0; text-align: center; font-size: 14px; color: #dc2626; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <h1>Smart Campus</h1>
+            <p>Complaint Management System</p>
+            
+            <div class="role-selector">
+                <button class="role-btn active" data-role="student">Student</button>
+                <button class="role-btn" data-role="admin">Admin</button>
+            </div>
+            
+            <div id="studentForm">
+                <div class="form-group hidden" id="studentNameGroup">
+                    <label>Full Name</label>
+                    <input type="text" id="studentName" placeholder="Enter your full name" autocomplete="name">
+                </div>
+                <div class="form-group">
+                    <label>Roll Number</label>
+                    <input type="text" id="studentRoll" placeholder="Enter roll number" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="studentPass" placeholder="Enter password" autocomplete="current-password">
+                </div>
+                <button class="login-btn" id="studentLogin">Login as Student</button>
+                <p class="switch-mode">
+                    <button type="button" class="link-btn" id="toggleRegister">New student? Create an account</button>
+                </p>
+                <p class="login-message" id="studentMessage"></p>
+            </div>
+            
+            <div id="adminForm" class="hidden">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="adminUser" placeholder="Enter username" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="adminPass" placeholder="Enter password" autocomplete="current-password">
+                </div>
+                <button class="login-btn" id="adminLogin">Login as Admin</button>
+                <p class="login-message" id="adminMessage"></p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="theme.js"></script>
+    <script>
+        let registerMode = false;
+        const studentNameGroup = document.getElementById('studentNameGroup');
+        const studentLoginButton = document.getElementById('studentLogin');
+        const toggleRegister = document.getElementById('toggleRegister');
+        const studentPassword = document.getElementById('studentPass');
+
+        toggleRegister.addEventListener('click', () => {
+            registerMode = !registerMode;
+            studentNameGroup.classList.toggle('hidden', !registerMode);
+            studentLoginButton.textContent = registerMode
+                ? 'Create Student Account'
+                : 'Login as Student';
+            toggleRegister.textContent = registerMode
+                ? 'Already have an account? Log in'
+                : 'New student? Create an account';
+            studentPassword.autocomplete = registerMode ? 'new-password' : 'current-password';
+            document.getElementById('studentMessage').textContent = '';
+        });
+
+        document.querySelectorAll('.role-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (btn.dataset.role === 'student') {
+                    document.getElementById('studentForm').classList.remove('hidden');
+                    document.getElementById('adminForm').classList.add('hidden');
+                } else {
+                    document.getElementById('studentForm').classList.add('hidden');
+                    document.getElementById('adminForm').classList.remove('hidden');
+                }
+            });
+        });
+        
+        document.getElementById('studentLogin').addEventListener('click', async () => {
+            const name = document.getElementById('studentName').value.trim();
+            const roll = document.getElementById('studentRoll').value.trim();
+            const pass = document.getElementById('studentPass').value;
+            const message = document.getElementById('studentMessage');
+            message.textContent = '';
+
+            if (!roll || !pass || (registerMode && !name)) {
+                message.textContent = registerMode
+                    ? 'Please enter your name, roll number and password.'
+                    : 'Please enter your roll number and password.';
+                return;
+            }
+
+            try {
+                const res = await fetch(registerMode ? '/api/student/register' : '/api/student/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(registerMode
+                        ? {studentName: name, rollNumber: roll, password: pass}
+                        : {rollNumber: roll, password: pass})
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    localStorage.setItem('userType', 'student');
+                    localStorage.setItem('rollNumber', data.rollNumber || roll);
+                    window.location.href = 'index.html';
+                } else {
+                    message.textContent = data.error || 'Login failed. Please try again.';
+                }
+            } catch(e) {
+                message.textContent = 'Login failed. Please try again.';
+            }
+        });
+        
+        document.getElementById('adminLogin').addEventListener('click', async () => {
+            const user = document.getElementById('adminUser').value;
+            const pass = document.getElementById('adminPass').value;
+            const message = document.getElementById('adminMessage');
+            message.textContent = '';
+            try {
+                const res = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: user, password: pass})
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    localStorage.setItem('userType', 'admin');
+                    window.location.href = 'admin.html';
+                } else {
+                    message.textContent = data.error || 'Invalid credentials.';
+                }
+            } catch(e) {
+                message.textContent = 'Login failed. Please try again.';
+            }
+        });
+    </script>
+</body>
+</html>
