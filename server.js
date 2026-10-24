@@ -1982,7 +1982,10 @@ function createApp(options = {}) {
 
     for (const [route, fileName] of Object.entries(publicFiles)) {
         app.get(route, (request, response, next) => {
-            const filePath = path.join(__dirname, fileName);
+            const publicCandidate = path.join(__dirname, "public", fileName);
+            const filePath = fs.existsSync(publicCandidate)
+                ? publicCandidate
+                : path.join(__dirname, fileName);
             fs.readFile(filePath, (error, content) => {
                 if (error) {
                     return next(error);

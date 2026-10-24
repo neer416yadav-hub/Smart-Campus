@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        Admin Dashboard - Smart Campus
+    </title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <link
+        rel="stylesheet"
+        href="ui.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="admin.css"
+    >
+
+    <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+
+</head>
+
+
+<body>
+<script>
+    if (localStorage.getItem('userType') !== 'admin') {
+        window.location.href = 'login.html';
+    }
+</script>
+
+
+    <!-- LOGIN PAGE -->
+
+    <section
+        class="login-page"
+        id="loginPage"
+    >
+
+        <button
+            type="button"
+            class="theme-toggle theme-toggle-floating"
+            data-theme-toggle
+            aria-label="Switch to dark mode"
+        >
+            <span data-theme-icon>☾</span>
+            <span class="theme-toggle-text" data-theme-label>Dark Mode</span>
+        </button>
+
+        <div class="login-card">
+
+            <div class="login-logo">
+                <img class="login-logo-img" src="logo.png" alt="Smart Campus logo" width="70" height="70">
+            </div>
+
+
+            <h1>
+                SMART CAMPUS
+            </h1>
+
+            <p class="login-subtitle">
+                Admin Login
+            </p>
+
+
+            <form id="loginForm">
+
+                <div class="input-group">
+
+                    <label for="username">
+                        Username
+                    </label>
+
+                    <input
+                        type="text"
+                        id="username"
+                        placeholder="Enter username"
+                        autocomplete="username"
+                        required
+                    >
+
+                </div>
+
+
+                <div class="input-group">
+
+                    <label for="password">
+                        Password
+                    </label>
+
+                    <div style="position: relative;">
+                        <input
+                            type="password"
+                            id="password"
+                            placeholder="Enter password"
+                            autocomplete="current-password"
+                            style="padding-right: 44px;"
+                            required
+                        >
+                        <button type="button" id="toggleAdminModalPass" aria-label="Toggle password visibility" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: inherit; cursor: pointer; padding: 4px; font-size: 18px; line-height: 1;">👁</button>
+                    </div>
+
+                </div>
+
+
+                <p
+                    class="login-error"
+                    id="loginError"
+                    role="alert"
+                ></p>
+
+
+                <button
+                    type="submit"
+                    class="login-button"
+                >
+                    Login
+                </button>
+
+            </form>
+
+
+            <a
+                href="index.html"
+                class="back-home"
+            >
+                ← Back to Student Page
+            </a>
+
+        </div>
+
+    </section>
+
+
+    <!-- DASHBOARD -->
+
+    <section
+        class="dashboard-page"
+        id="dashboardPage"
+    >
+
+
+        <!-- HEADER -->
+
+        <header class="admin-header">
+
+            <div class="header-left">
+
+                <div class="header-logo">
+                    <img class="header-logo-img" src="logo.png" alt="Smart Campus logo" width="46" height="46">
+                </div>
+
+
+                <div>
+
+                    <h1>
+                        Smart Campus
+                    </h1>
+
+                    <p>
+                        Complaint Management Dashboard
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="header-right">
+
+                <span class="admin-badge" id="roleBadge">
+                    ADMIN
+                </span>
+
+                <button
+                    type="button"
+                    class="theme-toggle"
+                    data-theme-toggle
+                    aria-label="Switch to dark mode"
+                >
+                    <span data-theme-icon>☾</span>
+                    <span class="theme-toggle-text" data-theme-label>Dark Mode</span>
+                </button>
+
+
+                <button
+                    id="logoutButton"
+                    class="logout-button"
+                >
+                    Logout
+                </button>
+
+            </div>
+
+        </header>
+
+
+        <!-- MAIN -->
+
+        <main class="dashboard-container">
+
+
+            <div class="dashboard-title">
+
+                <div>
+
+                    <h2>
+                        Complaint Dashboard
+                    </h2>
+
+                    <p>
+                        Manage and monitor campus complaints
+                    </p>
+
+                </div>
+
+
+                <div class="dashboard-toolbar">
+
+                    <span class="last-updated" id="lastUpdated" title="Last time the list was refreshed">
+                        —
+                    </span>
+
+                    <label class="auto-refresh-toggle" for="autoRefreshToggle">
+                        <input
+                            type="checkbox"
+                            id="autoRefreshToggle"
+                        >
+                        <span class="auto-refresh-track"><span class="auto-refresh-thumb"></span></span>
+                        Auto refresh
+                    </label>
+
+                    <button
+                        id="exportCsvButton"
+                        class="toolbar-button"
+                        type="button"
+                        title="Download the filtered complaints as a CSV file"
+                    >
+                        ⬇ Export CSV
+                    </button>
+
+                    <button
+                        id="refreshButton"
+                        class="refresh-button"
+                        title="Refresh the complaint list now"
+                    >
+                        ↻ Refresh
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <!-- SUMMARY -->
+
+            <div class="summary-grid">
+
+                <div class="summary-card">
+
+                    <div class="summary-icon">
+                        📋
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Total Complaints
+                        </p>
+
+                        <h3 id="totalComplaints">
+                            0
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card">
+
+                    <div class="summary-icon">
+                        📨
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Submitted
+                        </p>
+
+                        <h3 id="submittedComplaints">
+                            0
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card">
+
+                    <div class="summary-icon">
+                        🔧
+                    </div>
+
+                    <div>
+
+                        <p>
+                            In Progress
+                        </p>
+
+                        <h3 id="progressComplaints">
+                            0
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card">
+
+                    <div class="summary-icon">
+                        ✅
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Resolved
+                        </p>
+
+                        <h3 id="resolvedComplaints">
+                            0
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card summary-card-accent">
+
+                    <div class="summary-icon">
+                        📈
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Resolution Rate
+                        </p>
+
+                        <h3 id="resolutionRateComplaints">
+                            0%
+                        </h3>
+
+                    </div>
+
+                </div>
+
+
+                <div class="summary-card summary-card-accent">
+
+                    <div class="summary-icon">
+                        ⏱️
+                    </div>
+
+                    <div>
+
+                        <p>
+                            Avg Resolution Time
+                        </p>
+
+                        <h3 id="avgResolutionTime">
+                            —
+                        </h3>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <section
+                id="aiEmergencyAlerts"
+                class="ai-emergency-alerts"
+                role="alert"
+                hidden
+            ></section>
+
+            <section
+                id="aiRecurringIssues"
+                class="ai-recurring-issues"
+                hidden
+            ></section>
+
+            <!-- ANALYTICS WILL BE ADDED HERE -->
+
+
+            <!-- COMPLAINT SECTION -->
+
+            <section class="complaints-section">
+
+                <p
+                    id="backendError"
+                    class="backend-error"
+                    role="alert"
+                    hidden
+                ></p>
+
+                <div class="section-heading">
+
+                    <div>
+
+                        <h2>
+                            Complaint Records
+                        </h2>
+
+                        <p>
+                            View and manage submitted complaints
+                        </p>
+
+                    </div>
+
+
+                    <span
+                        id="resultCount"
+                        class="result-count"
+                    >
+                        0 complaints
+                    </span>
+
+                </div>
+
+
+                <!-- FILTERS -->
+
+                <div class="filters">
+
+
+                    <div class="filter-group">
+
+                        <label for="searchInput">
+                            Search
+                        </label>
+
+                        <input
+                            type="text"
+                            id="searchInput"
+                            placeholder="Complaint ID, student or roll number"
+                        >
+
+                    </div>
+
+
+                    <div class="filter-group">
+
+                        <label for="categoryFilter">
+                            Category
+                        </label>
+
+                        <select id="categoryFilter">
+
+                            <option value="">
+                                All Categories
+                            </option>
+
+                            <option value="wifi">
+                                Wi-Fi / Internet
+                            </option>
+
+                            <option value="electrical">
+                                Electrical
+                            </option>
+
+                            <option value="sanitation">
+                                Sanitation
+                            </option>
+
+                            <option value="infrastructure">
+                                Infrastructure
+                            </option>
+
+                            <option value="classroom">
+                                Classroom
+                            </option>
+
+                            <option value="hostel">
+                                Hostel
+                            </option>
+
+                            <option value="library">
+                                Library
+                            </option>
+
+                            <option value="security">
+                                Security
+                            </option>
+
+                            <option value="water">
+                                Water
+                            </option>
+
+                            <option value="furniture">
+                                Furniture
+                            </option>
+
+                            <option value="transport">
+                                Transport
+                            </option>
+
+                            <option value="other">
+                                Other
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="filter-group">
+
+                        <label for="priorityFilter">
+                            Priority
+                        </label>
+
+                        <select id="priorityFilter">
+
+                            <option value="">
+                                All Priorities
+                            </option>
+
+                            <option value="High">
+                                High
+                            </option>
+
+                            <option value="Medium">
+                                Medium
+                            </option>
+
+                            <option value="Low">
+                                Low
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="filter-group">
+
+                        <label for="statusFilter">
+                            Status
+                        </label>
+
+                        <select id="statusFilter">
+
+                            <option value="">
+                                All Status
+                            </option>
+
+                            <option value="Submitted">
+                                Submitted
+                            </option>
+
+                            <option value="In Progress">
+                                In Progress
+                            </option>
+
+                            <option value="Resolved">
+                                Resolved
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="filter-group">
+
+                        <label for="sortFilter">
+                            Sort By
+                        </label>
+
+                        <select id="sortFilter">
+
+                            <option value="">
+                                Default
+                            </option>
+
+                            <option value="newest">
+                                Newest First
+                            </option>
+
+                            <option value="oldest">
+                                Oldest First
+                            </option>
+
+                            <option value="high">
+                                High Priority First
+                            </option>
+
+                            <option value="medium">
+                                Medium Priority First
+                            </option>
+
+                            <option value="low">
+                                Low Priority First
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <button
+                        id="clearFiltersButton"
+                        class="clear-filter-button"
+                        type="button"
+                    >
+                        Clear Filters
+                    </button>
+
+                </div>
+
+
+                <!-- TABLE -->
+
+                <div class="table-container">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>
+                                    Complaint ID
+                                </th>
+
+                                <th>
+                                    Student
+                                </th>
+
+                                <th>
+                                    Category
+                                </th>
+
+                                <th>
+                                    Priority
+                                </th>
+
+                                <th>
+                                    Department
+                                </th>
+
+                                <th>
+                                    Location
+                                </th>
+
+                                <th>
+                                    Date
+                                </th>
+
+                                <th>
+                                    Status
+                                </th>
+
+                                <th>
+                                    Details
+                                </th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody
+                            id="complaintTableBody"
+                        ></tbody>
+
+                    </table>
+
+                </div>
+
+
+                <div
+                    id="noComplaints"
+                    class="no-complaints"
+                >
+                    No complaints found.
+                </div>
+
+            </section>
+
+        </main>
+
+
+        <!-- FOOTER -->
+
+        <footer class="admin-footer">
+
+            <p>
+                © 2026 Smart Campus Complaint & Resolution System
+            </p>
+
+        </footer>
+
+    </section>
+
+
+    <script src="theme.js"></script>
+    <script src="admin.js"></script>
+
+</body>
+
+</html>

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Smart Campus Complaint System</title>
+
+    <meta name="description" content="Report campus problems, track complaint status and get free local AI assistance on category, department and priority.">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="ui.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+</head>
+
+<body>
+<script>
+    if (localStorage.getItem('userType') !== 'student') {
+        window.location.href = 'login.html';
+    }
+</script>
+
+    <!-- ANIMATED BACKGROUND -->
+    <div class="aurora" aria-hidden="true">
+        <span class="aurora-blob aurora-blob-1"></span>
+        <span class="aurora-blob aurora-blob-2"></span>
+        <span class="aurora-blob aurora-blob-3"></span>
+        <span class="aurora-grid"></span>
+    </div>
+
+
+    <!-- HEADER -->
+    <header class="main-header" data-scroll-header>
+
+        <div class="logo-area">
+
+            <div class="logo-box">
+                <img class="logo-img" src="logo.png" alt="Smart Campus logo" width="46" height="46">
+                <span class="logo-pulse"></span>
+            </div>
+
+            <div class="logo-text">
+                <h1>Smart Campus</h1>
+                <p>Complaint &amp; Resolution System</p>
+            </div>
+
+        </div>
+
+
+        <nav class="main-nav">
+
+            <a href="#complaintSection" class="nav-link">
+                Submit
+            </a>
+
+            <a href="#trackingSection" class="nav-link">
+                Track
+            </a>
+
+            <a href="#myComplaintsSection" class="nav-link">
+                My Complaints
+            </a>
+
+            <a href="#campusStatsSection" class="nav-link">
+                Campus Stats
+            </a>
+
+            <a href="login.html" class="nav-link nav-link-muted" onclick="logoutStudent(event);">
+                Logout
+            </a>
+
+            <button
+                type="button"
+                class="theme-toggle"
+                data-theme-toggle
+                aria-label="Switch to dark mode"
+            >
+                <span data-theme-icon>☾</span>
+                <span class="theme-toggle-text" data-theme-label>Dark Mode</span>
+            </button>
+
+        </nav>
+
+    </header>
+
+
+    <!-- MAIN -->
+    <main class="main-container">
+
+
+        <!-- HERO -->
+        <section class="hero">
+
+            <span class="hero-badge">
+                <span class="hero-badge-dot"></span>
+                Smart Campus · Complaint System
+            </span>
+
+            <h2 class="hero-title">
+                Report campus problems.
+                <span class="hero-title-accent">Track & resolve them.</span>
+            </h2>
+
+            <p class="hero-text">
+                Smart Campus routes your complaint to the right department, gives
+                an instant local AI suggestion for category and priority, and
+                keeps a complete status history so you always know where your
+                issue stands.
+            </p>
+
+            <div class="hero-actions">
+
+                <a href="#complaintSection" class="primary-button">
+                    Submit a Complaint
+                </a>
+
+                <a href="#trackingSection" class="secondary-button">
+                    Track Existing
+                </a>
+
+            </div>
+
+        </section>
+
+
+        <!-- CAMPUS STATS -->
+        <section
+            class="stats-strip"
+            id="campusStatsSection"
+            data-reveal
+        >
+
+            <div class="stats-strip-head">
+
+                <div>
+                    <h3>Campus Snapshot</h3>
+                    <p>Live numbers from the complaint register.</p>
+                </div>
+
+                <span class="stats-updated" id="statsUpdated">Loading…</span>
+
+            </div>
+
+            <div class="stats-grid" id="statsGrid">
+
+                <div class="stat-tile stat-tile-skeleton"></div>
+                <div class="stat-tile stat-tile-skeleton"></div>
+                <div class="stat-tile stat-tile-skeleton"></div>
+                <div class="stat-tile stat-tile-skeleton"></div>
+
+            </div>
+
+        </section>
+
+
+        <!-- COMPLAINT FORM -->
+        <section
+            class="card"
+            id="complaintSection"
+            data-reveal
+        >
+
+            <div class="section-title">
+
+                <div class="section-title-icon">📝</div>
+
+                <div>
+                    <h2>Submit a Complaint</h2>
+                    <p>Fill in the details below to register your complaint.</p>
+                </div>
+
+            </div>
+
+
+            <form id="complaintForm">
+
+                <div class="form-grid">
+
+                    <!-- NAME -->
+                    <div class="form-group">
+
+                        <label for="studentName">
+                            Student Name <span class="required">*</span>
+                        </label>
+
+                        <div class="input-shell">
+                            <span class="input-icon">👤</span>
+                            <input
+                                type="text"
+                                id="studentName"
+                                placeholder="Enter your name"
+                                autocomplete="name"
+                                required
+                            >
+                        </div>
+
+                    </div>
+
+
+                    <!-- ROLL -->
+                    <div class="form-group">
+
+                        <label for="rollNumber">
+                            Roll Number <span class="required">*</span>
+                        </label>
+
+                        <div class="input-shell">
+                            <span class="input-icon">🆔</span>
+                            <input
+                                type="text"
+                                id="rollNumber"
+                                placeholder="Enter roll number"
+                                autocomplete="off"
+                                required
+                            >
+                        </div>
+
+                        <small class="field-help" id="rollHelp">
+                            
+                        </small>
+
+                    </div>
+
+
+                    <!-- CATEGORY -->
+                    <div class="form-group">
+
+                        <label for="category">
+                            Complaint Category <span class="required">*</span>
+                        </label>
+
+                        <div class="input-shell">
+                            <span class="input-icon">🏷️</span>
+                            <select id="category" required>
+                                <option value="">Select category</option>
+                                <option value="wifi">Wi-Fi / Internet Issue</option>
+                                <option value="electrical">Electrical Problem</option>
+                                <option value="sanitation">Sanitation / Cleanliness</option>
+                                <option value="infrastructure">Infrastructure Damage</option>
+                                <option value="classroom">Classroom Problem</option>
+                                <option value="hostel">Hostel Problem</option>
+                                <option value="library">Library Problem</option>
+                                <option value="security">Security Issue</option>
+                                <option value="water">Water Supply Issue</option>
+                                <option value="furniture">Furniture Problem</option>
+                                <option value="transport">Transport Issue</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+
+                    </div>
+
+
+                    <!-- BUILDING -->
+                    <div class="form-group">
+
+                        <label for="building">
+                            Building / Section <span class="required">*</span>
+                        </label>
+
+                        <div class="input-shell">
+                            <span class="input-icon">🏫</span>
+                            <select id="building" required>
+                                <option value="">Select building / section</option>
+                                <option value="Engineering">Engineering</option>
+                                <option value="Mechanical">Mechanical</option>
+                                <option value="Law">Law</option>
+                                <option value="Pharmacy">Pharmacy</option>
+                                <option value="Hostel">Hostel</option>
+                                <option value="Workshop">Workshop</option>
+                                <option value="Account Section">Account Section</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                    </div>
+
+
+                    <!-- FLOOR -->
+                    <div class="form-group">
+
+                        <label for="floor">
+                            Floor <span class="required">*</span>
+                        </label>
+
+                        <div class="input-shell">
+                            <span class="input-icon">🪜</span>
+                            <select id="floor" required>
+                                <option value="">Select floor</option>
+                                <option value="Ground Floor">Ground Floor</option>
+                                <option value="1st Floor">1st Floor</option>
+                                <option value="2nd Floor">2nd Floor</option>
+                                <option value="3rd Floor">3rd Floor</option>
+                                <option value="4th Floor">4th Floor</option>
+                                <option value="5th Floor">5th Floor</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                    </div>
+
+
+                    <!-- ROOM -->
+                    <div class="form-group">
+
+                        <label for="roomNumber">
+                            Room / Lab Number
+                        </label>
+
+                        <div class="input-shell">
+                            <span class="input-icon">🚪</span>
+                            <input
+                                type="text"
+                                id="roomNumber"
+                                placeholder="Example: Lab 204"
+                            >
+                        </div>
+
+                    </div>
+
+
+                    <!-- DESCRIPTION -->
+                    <div class="form-group full-width">
+
+                        <label for="description">
+                            Complaint Description <span class="required">*</span>
+                        </label>
+
+                        <div class="input-shell input-shell-area">
+                            <span class="input-icon">💬</span>
+                            <textarea
+                                id="description"
+                                rows="5"
+                                maxlength="5000"
+                                placeholder="Explain the problem clearly... (English, हिंदी or Hinglish all work)"
+                                required
+                            ></textarea>
+                        </div>
+
+                        <div class="description-meta">
+
+                            <span class="char-count" id="charCount">0 / 5000</span>
+
+                            <span class="priority-preview" id="priorityPreview" data-priority="Low">
+                                Priority: <strong>Low</strong>
+                            </span>
+
+                        </div>
+
+                        <div class="ai-assistant">
+
+                            <button
+                                type="button"
+                                id="aiSuggestButton"
+                                class="ai-suggest-button"
+                            >
+                                <span class="ai-sparkle">✦</span>
+                                Get AI suggestion
+                            </button>
+
+                            <p class="field-help">
+                                Get AI suggestion for category, department and priority.
+                            </p>
+
+                            <div
+                                id="aiSuggestion"
+                                class="ai-suggestion"
+                                role="status"
+                                aria-live="polite"
+                                hidden
+                            ></div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- PHOTO -->
+                    <div
+                        class="form-group full-width"
+                        id="photoUploadGroup"
+                    >
+
+                        <label for="photo">
+                            Evidence Photo (Optional)
+                        </label>
+
+                        <input
+                            type="file"
+                            id="photo"
+                            accept="image/*"
+                            class="file-input"
+                        >
+
+                        <small
+                            class="field-help"
+                            id="photoUploadNotice"
+                            role="status"
+                            hidden
+                        ></small>
+
+                        <small class="field-help" id="photoUploadHelp">
+                            You can upload a photo of the problem (PNG, JPG, JPEG).
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+                <button
+                    type="submit"
+                    class="primary-button primary-button-block"
+                    id="submitComplaintButton"
+                >
+                    Submit Complaint
+                </button>
+
+            </form>
+
+        </section>
+
+
+        <!-- TRACKING -->
+        <section
+            class="card tracking-section"
+            id="trackingSection"
+            data-reveal
+        >
+
+            <div class="section-title">
+
+                <div class="section-title-icon">🔎</div>
+
+                <div>
+                    <h2>Track Your Complaint</h2>
+                    <p>Enter your complaint ID to track its status.</p>
+                </div>
+
+            </div>
+
+
+            <div class="tracking-form">
+
+                <div class="input-shell">
+                    <span class="input-icon">🎫</span>
+                    <input
+                        type="text"
+                        id="trackingId"
+                        placeholder="Example: SC-2026-1234"
+                        aria-label="Complaint ID"
+                    >
+                </div>
+
+                <div class="input-shell" id="trackingRollShell">
+                    <span class="input-icon">🆔</span>
+                    <input
+                        type="text"
+                        id="trackingRollNumber"
+                        placeholder="Your roll number"
+                        aria-label="Roll number used for the complaint"
+                    >
+                </div>
+
+                <button
+                    type="button"
+                    id="trackButton"
+                    class="primary-button"
+                >
+                    Track Complaint
+                </button>
+
+            </div>
+
+
+            <div id="trackingResult"></div>
+
+        </section>
+
+
+        <!-- MY COMPLAINTS -->
+        <section
+            class="card"
+            id="myComplaintsSection"
+            data-reveal
+        >
+
+            <div class="section-title">
+
+                <div class="section-title-icon">🗂️</div>
+
+                <div>
+                    <h2>My Complaints</h2>
+                    <p>Your submitted complaints.</p>
+                </div>
+
+                <button
+                    type="button"
+                    class="ghost-button"
+                    id="clearHistoryButton"
+                >
+                    Clear history
+                </button>
+
+            </div>
+
+            <div id="myComplaintsList" class="history-list"></div>
+
+        </section>
+
+    </main>
+
+
+    <!-- FOOTER -->
+    <footer class="main-footer">
+
+        <p>
+            © 2026 Smart Campus Complaint &amp; Resolution System
+        </p>
+
+        <p class="footer-note">
+            Smart Campus Complaint System
+        </p>
+
+    </footer>
+
+
+    <script src="theme.js"></script>
+    <script src="script.js"></script>
+
+</body>
+</html>
