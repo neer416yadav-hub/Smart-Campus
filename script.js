@@ -57,11 +57,54 @@ document.addEventListener("DOMContentLoaded", function () {
 
 });
 
-function setupStudentAuth() {
+async function setupStudentAuth() {
     const loadBtn = document.getElementById('loadMyComplaintsBtn');
-    const rollNumber = localStorage.getItem('rollNumber');
+    let rollNumber = localStorage.getItem('rollNumber') || '';
+    let studentName = localStorage.getItem('studentName') || '';
 
-    if (localStorage.getItem('userType') === 'student' && rollNumber) {
+    // Verify or fetch current session from server
+    try {
+        const session = await requestApi('/api/student/session');
+        if (session && session.authenticated) {
+            rollNumber = session.rollNumber || rollNumber;
+            studentName = session.studentName || studentName;
+            localStorage.setItem('userType', 'student');
+            if (session.rollNumber) localStorage.setItem('rollNumber', session.rollNumber);
+            if (session.studentName) localStorage.setItem('studentName', session.studentName);
+        }
+    } catch (e) {
+        // Fallback to localStorage values
+    }
+
+    if (rollNumber || studentName) {
+        // Auto-fill complaint form fields
+        const studentNameInput = document.getElementById('studentName');
+        const rollNumberInput = document.getElementById('rollNumber');
+        const trackingRollInput = document.getElementById('trackingRollNumber');
+        const rollHelp = document.getElementById('rollHelp');
+
+        if (studentNameInput && studentName && !studentNameInput.value) {
+            studentNameInput.value = studentName;
+        }
+        if (rollNumberInput && rollNumber && !rollNumberInput.value) {
+            rollNumberInput.value = rollNumber;
+        }
+        if (trackingRollInput && rollNumber && !trackingRollInput.value) {
+            trackingRollInput.value = rollNumber;
+        }
+
+        if (rollHelp && (studentName || rollNumber)) {
+            rollHelp.innerHTML = '<span style="color:var(--brand-1, #087f8c); font-weight:600;">✓ Auto-filled from your student account</span>';
+        }
+
+        // Update nav logout link with student name
+        const logoutLink = document.querySelector('a[href="login.html"]');
+        if (logoutLink && studentName) {
+            logoutLink.textContent = `Logout (${studentName.split(' ')[0]})`;
+            logoutLink.title = `Logged in as ${studentName} (${rollNumber})`;
+        }
+
+        // Auto-load student complaints
         setTimeout(async function() {
             try {
                 const complaints = await requestApi('/api/student/complaints');
@@ -113,6 +156,7 @@ async function logoutStudent(event) {
     } finally {
         localStorage.removeItem('userType');
         localStorage.removeItem('rollNumber');
+        localStorage.removeItem('studentName');
         window.location.href = 'login.html';
     }
 }
@@ -128,17 +172,16 @@ async function setupPhotoUploadAvailability() {
     try {
         const config = await requestApi("/api/config");
         photo.disabled = !config.photoUploadsEnabled;
-        notice.hidden = config.photoUploadsEnabled;
+        notice.hidden = Boolean(config.photoUploadsEnabled);
         notice.textContent = config.photoUploadsEnabled
             ? ""
             : "Photo uploads are temporarily disabled for this public demo.";
-        help.hidden = !config.photoUploadsEnabled;
+        help.hidden = false;
     } catch (error) {
         console.error(error);
-        photo.disabled = true;
-        notice.textContent =
-            "Photo upload availability could not be checked, so uploads are disabled.";
-        help.hidden = true;
+        photo.disabled = false;
+        notice.hidden = true;
+        help.hidden = false;
     }
 }
 

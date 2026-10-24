@@ -9,3 +9,5 @@ data/*.csv
 data/*.sql
 data/*.dump
 .vercel/
+.vercel
+.env*

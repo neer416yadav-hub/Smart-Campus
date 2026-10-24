@@ -100,13 +100,17 @@
                         Password
                     </label>
 
-                    <input
-                        type="password"
-                        id="password"
-                        placeholder="Enter password"
-                        autocomplete="current-password"
-                        required
-                    >
+                    <div style="position: relative;">
+                        <input
+                            type="password"
+                            id="password"
+                            placeholder="Enter password"
+                            autocomplete="current-password"
+                            style="padding-right: 44px;"
+                            required
+                        >
+                        <button type="button" id="toggleAdminModalPass" aria-label="Toggle password visibility" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: inherit; cursor: pointer; padding: 4px; font-size: 18px; line-height: 1;">👁</button>
+                    </div>
 
                 </div>
 

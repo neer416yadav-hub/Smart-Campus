@@ -89,6 +89,15 @@ function setupLogin() {
         return;
     }
 
+    const togglePassBtn = document.getElementById("toggleAdminModalPass");
+    const passInput = document.getElementById("password");
+    if (togglePassBtn && passInput) {
+        togglePassBtn.addEventListener("click", () => {
+            const isPass = passInput.type === "password";
+            passInput.type = isPass ? "text" : "password";
+            togglePassBtn.textContent = isPass ? "🙈" : "👁";
+        });
+    }
 
     form.addEventListener(
         "submit",

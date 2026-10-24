@@ -981,9 +981,9 @@ function createApp(options = {}) {
     const adminUsername =
         options.adminUsername || process.env.ADMIN_USERNAME || "admin";
     const adminPassword =
-        options.adminPassword || process.env.ADMIN_PASSWORD || "admin123";
+        options.adminPassword || process.env.ADMIN_PASSWORD || "SmartCampus@2024!";
     const photoUploadsEnabled =
-        !isProduction || process.env.ENABLE_PHOTO_UPLOADS === "true";
+        process.env.ENABLE_PHOTO_UPLOADS !== "false";
     let database;
     let databaseReady;
 
