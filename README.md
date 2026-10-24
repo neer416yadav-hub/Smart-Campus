@@ -2,7 +2,7 @@
 
 ## Free local setup
 
-This project uses Node.js 24 and Express. For local use it stores complaints in built-in SQLite. When `DATABASE_URL` is set, the backend uses PostgreSQL instead, ready for a hosted database such as Supabase. The app does not move local SQLite complaints to PostgreSQL automatically.
+This project uses Node.js 24 and Express. For local use it stores complaints in built-in SQLite. When `DATABASE_URL` is set, the backend uses PostgreSQL instead, ready for a hosted database such as Supabase. The app does not move local SQLite complaints to PostgreSQL automatically; run `npm run migrate` to copy them (see below).
 
 The student complaint form, tracking page, feedback form, and admin dashboard use this backend. Keep the server running while using the pages.
 The complaint form includes a free local AI suggestion for category, department, and priority, plus a short extractive summary. If category confidence is below 35%, the form asks the student to choose the category manually rather than applying an uncertain suggestion. Admins can correct a complaint category in its details; the responsible department is updated automatically. Its example set and safety/issue phrase checks include English, Hindi (Devanagari), and Hinglish/mixed text. Possible safety-risk wording is flagged for admin review. It also checks recent complaints for similar text in the same building/category and shows recurring issue patterns to admins. These features run locally and do not send complaint text to a paid AI service.
@@ -119,6 +119,15 @@ How to fix it:
 ```
 
 It also retries transient connection failures (database still starting, DNS not ready) up to five times with backoff before giving up, which avoids most "database was not ready" deploy failures.
+
+### Copying local complaints into PostgreSQL
+
+Stop the local server, set `DATABASE_URL` to the hosted connection string, and run the migration once:
+
+- Windows PowerShell: `$env:DATABASE_URL='postgres://...'; npm run migrate`
+- macOS / Linux: `DATABASE_URL='postgres://...' npm run migrate`
+
+It copies the complaints and student accounts from `data/smart-campus.sqlite` into PostgreSQL. Existing rows with the same complaint ID or roll number are skipped by default; add `-- --overwrite` to replace them. The script creates the tables if they do not exist and prints how many rows were found and written.
 
 ### Deploying to Vercel
 
