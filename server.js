@@ -673,9 +673,16 @@ const TRANSIENT_DATABASE_CODES = new Set([
 function isTransientDatabaseError(error) {
     const normalized = normalizeDatabaseError(error);
 
-    return Boolean(
-        normalized &&
-        TRANSIENT_DATABASE_CODES.has(normalized.code)
+    if (!normalized) {
+        return false;
+    }
+
+    if (TRANSIENT_DATABASE_CODES.has(normalized.code)) {
+        return true;
+    }
+
+    return /connection timeout|timed out|timeout expired|connection terminated|ECONNRESET|ETIMEDOUT/i.test(
+        String(normalized.message || "")
     );
 }
 
