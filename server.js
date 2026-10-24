@@ -1973,12 +1973,26 @@ function createApp(options = {}) {
         "/apple-touch-icon.png": "apple-touch-icon.png"
     };
 
+    const MIME_TYPES = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "application/javascript; charset=utf-8",
+        ".png": "image/png"
+    };
+
     for (const [route, fileName] of Object.entries(publicFiles)) {
         app.get(route, (request, response, next) => {
-            response.sendFile(path.join(__dirname, fileName), (error) => {
+            const filePath = path.join(__dirname, fileName);
+            fs.readFile(filePath, (error, content) => {
                 if (error) {
-                    next(error);
+                    return next(error);
                 }
+                const ext = path.extname(fileName);
+                response.setHeader(
+                    "Content-Type",
+                    MIME_TYPES[ext] || "application/octet-stream"
+                );
+                response.send(content);
             });
         });
     }

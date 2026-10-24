@@ -49,5 +49,10 @@ module.exports = async function handler(request, response) {
         });
     }
 
-    return app(request, response);
+    return new Promise((resolve, reject) => {
+        response.on("finish", resolve);
+        response.on("close", resolve);
+        response.on("error", reject);
+        app(request, response);
+    });
 };
