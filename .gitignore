@@ -8,3 +8,4 @@ data/*.sqlite-wal
 data/*.csv
 data/*.sql
 data/*.dump
+.vercel/
