@@ -2,20 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/index.js": {
-      "includeFiles": [
-        "index.html",
-        "login.html",
-        "admin.html",
-        "style.css",
-        "ui.css",
-        "admin.css",
-        "script.js",
-        "theme.js",
-        "admin.js",
-        "logo.png",
-        "favicon.png",
-        "apple-touch-icon.png"
-      ]
+      "includeFiles": "*.{html,css,js,png}"
     }
   },
   "rewrites": [
