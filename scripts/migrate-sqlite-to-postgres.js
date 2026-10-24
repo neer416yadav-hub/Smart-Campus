@@ -63,11 +63,20 @@ async function main() {
         const complaints = sqlite
             .prepare("SELECT complaint_id, complaint_json FROM complaints ORDER BY id")
             .all();
-        const students = sqlite
-            .prepare(
-                "SELECT roll_key, roll_number, student_name, password_hash, created_at FROM students ORDER BY id"
-            )
-            .all();
+        const hasStudentsTable = Boolean(
+            sqlite
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'students'"
+                )
+                .get()
+        );
+        const students = hasStudentsTable
+            ? sqlite
+                  .prepare(
+                      "SELECT roll_key, roll_number, student_name, password_hash, created_at FROM students ORDER BY id"
+                  )
+                  .all()
+            : [];
 
         let complaintsWritten = 0;
         let studentsWritten = 0;
