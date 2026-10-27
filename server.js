@@ -2053,7 +2053,7 @@ function createApp(options = {}) {
         }
 
         const students = studentRows.map((student) => ({
-            rollNumber: student.roll_number,
+            rollNumber: normalizeRollNumber(student.roll_number),
             studentName: student.student_name,
             createdAt: Number(student.created_at),
             complaintCount: complaintCounts.get(student.roll_key) || 0,
@@ -2159,8 +2159,24 @@ function createApp(options = {}) {
                 });
             }
 
+            if (password === undefined && studentName === undefined) {
+                return response.status(400).json({
+                    error: "Provide a new password or student name."
+                });
+            }
+
             const updates = [];
             const values = [];
+
+            // Older accounts may have been stored in lower case. Normalise the
+            // roll number in place so every screen shows one spelling.
+            if (
+                isValidRollNumber(rollNumber) &&
+                student.roll_number !== rollNumber
+            ) {
+                updates.push("roll_number = ?");
+                values.push(rollNumber);
+            }
 
             if (password !== undefined) {
                 updates.push("password_hash = ?");
