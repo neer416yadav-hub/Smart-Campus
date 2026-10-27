@@ -5,6 +5,16 @@
 const HISTORY_KEY = "sc-complaint-history";
 const HISTORY_LIMIT = 12;
 
+// Roll numbers look like 25CSE38: 2- or 4-digit year, branch code, number.
+// Slashes, dots and spaces are not allowed.
+const ROLL_NUMBER_PATTERN = /^(?:\d{2}|\d{4})[A-Za-z]{2,5}\d{1,4}$/;
+const ROLL_NUMBER_HINT =
+    "Roll number must look like 25CSE38 (year + branch + number, no spaces, slashes or dots).";
+
+function sanitizeRollInput(value) {
+    return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 function ui() {
     return window.SmartCampusUI || {};
 }
@@ -793,6 +803,19 @@ function setupComplaintForm() {
     }
 
 
+    const rollField = document.getElementById("rollNumber");
+
+    if (rollField) {
+        rollField.addEventListener("input", function () {
+            const cleaned = sanitizeRollInput(rollField.value);
+
+            if (rollField.value !== cleaned) {
+                rollField.value = cleaned;
+            }
+        });
+    }
+
+
     form.addEventListener(
         "submit",
         async function (event) {
@@ -904,6 +927,20 @@ function setupComplaintForm() {
                 notify(
                     "Please fill all required fields."
                 );
+
+                return;
+
+            }
+
+
+            if (!ROLL_NUMBER_PATTERN.test(rollNumber)) {
+
+                notify(ROLL_NUMBER_HINT);
+
+                const rollField = document.getElementById("rollNumber");
+                if (rollField) {
+                    rollField.focus();
+                }
 
                 return;
 

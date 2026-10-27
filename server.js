@@ -818,6 +818,25 @@ function normalizeRollKey(rollNumber) {
 }
 
 
+// Roll numbers look like 25CSE38: a two- or four-digit admission year, a
+// branch code, and a numeric roll. Slashes, dots, spaces and other punctuation
+// are rejected so the same student cannot end up with several spellings.
+const ROLL_NUMBER_PATTERN = /^(?:\d{2}|\d{4})[A-Za-z]{2,5}\d{1,4}$/;
+const ROLL_NUMBER_MESSAGE =
+    "Enter a valid roll number like 25CSE38 (year, branch and number only — " +
+    "no spaces, slashes or dots).";
+
+
+function normalizeRollNumber(rollNumber) {
+    return String(rollNumber).trim().toUpperCase();
+}
+
+
+function isValidRollNumber(rollNumber) {
+    return ROLL_NUMBER_PATTERN.test(normalizeRollNumber(rollNumber));
+}
+
+
 function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString("hex");
     const hash = crypto.scryptSync(password, salt, 64).toString("hex");
@@ -1540,6 +1559,12 @@ function createApp(options = {}) {
             });
         }
 
+        if (!isValidRollNumber(body.rollNumber)) {
+            return response.status(400).json({
+                error: ROLL_NUMBER_MESSAGE
+            });
+        }
+
         if (!CATEGORIES.has(body.categoryCode)) {
             return response.status(400).json({ error: "Invalid category." });
         }
@@ -1600,7 +1625,7 @@ function createApp(options = {}) {
         const complaint = {
             complaintId,
             studentName: body.studentName.trim(),
-            rollNumber: body.rollNumber.trim(),
+            rollNumber: normalizeRollNumber(body.rollNumber),
             category:
                 body.categoryCode === "other"
                     ? `Other - ${String(body.otherCategory || "").trim()}`
@@ -1719,12 +1744,18 @@ function createApp(options = {}) {
         }
 
         const name = studentName.trim();
-        const roll = rollNumber.trim();
+        const roll = normalizeRollNumber(rollNumber);
         const rollKey = normalizeRollKey(roll);
 
         if (!name || !rollKey || name.length > 100 || roll.length > 50) {
             return response.status(400).json({
                 error: "Please provide a valid name and roll number."
+            });
+        }
+
+        if (!isValidRollNumber(roll)) {
+            return response.status(400).json({
+                error: ROLL_NUMBER_MESSAGE
             });
         }
 
@@ -1786,6 +1817,12 @@ function createApp(options = {}) {
         ) {
             return response.status(400).json({
                 error: "Please provide your roll number and password."
+            });
+        }
+
+        if (!isValidRollNumber(rollNumber)) {
+            return response.status(400).json({
+                error: ROLL_NUMBER_MESSAGE
             });
         }
 
@@ -2101,6 +2138,8 @@ module.exports = {
     describeDatabaseUrl,
     ensureSslMode,
     explainDatabaseError,
+    isValidRollNumber,
     normalizeDatabaseError,
+    normalizeRollNumber,
     resolveDatabaseUrl
 };

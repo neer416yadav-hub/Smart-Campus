@@ -3,7 +3,28 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createApp, describeDatabaseUrl, explainDatabaseError, normalizeDatabaseError, resolveDatabaseUrl } = require("./server");
+const { createApp, describeDatabaseUrl, explainDatabaseError, isValidRollNumber, normalizeDatabaseError, normalizeRollNumber, resolveDatabaseUrl } = require("./server");
+
+test("roll numbers use the year-branch-number format", () => {
+    for (const valid of ["25CSE38", "25cse38", "2025ECE118", "24ME9"]) {
+        assert.equal(isValidRollNumber(valid), true, valid);
+    }
+
+    for (const invalid of [
+        "25/CSE/38",
+        "25.CSE.38",
+        "25 CSE 38",
+        "CSE25",
+        "25CSE",
+        "25CSE38A",
+        "25- CSE-38",
+        ""
+    ]) {
+        assert.equal(isValidRollNumber(invalid), false, invalid);
+    }
+
+    assert.equal(normalizeRollNumber(" 25cse38 "), "25CSE38");
+});
 
 test("database URL resolution accepts Supabase integration env names", () => {
     const pooled =
@@ -227,7 +248,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
 
     const complaintPayload = {
         studentName: "Test Student",
-        rollNumber: "TEST-001",
+        rollNumber: "25CSE001",
         category: "Wi-Fi / Internet Issue",
         categoryCode: "wifi",
         building: "Engineering",
@@ -253,6 +274,17 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
     assert.equal(created.aiAssessment.emergency, false);
     assert.equal(created.aiAssessment.similarComplaintsCount, 0);
     assert.match(created.aiAssessment.summary, /Wi-Fi is not working/);
+
+    const badRollResponse = await fetch(`${baseUrl}/api/complaints`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            ...complaintPayload,
+            rollNumber: "25/CSE/001"
+        })
+    });
+    assert.equal(badRollResponse.status, 400);
+    assert.match((await badRollResponse.json()).error, /25CSE38/);
 
     const mismatchedCategoryResponse = await fetch(`${baseUrl}/api/complaints`, {
         method: "POST",
@@ -298,7 +330,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rollNumber: "TEST-001" })
+            body: JSON.stringify({ rollNumber: "25CSE001" })
         }
     );
     assert.equal(trackedResponse.status, 200);
@@ -315,7 +347,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rollNumber: "WRONG-ROLL" })
+            body: JSON.stringify({ rollNumber: "25CSE999" })
         }
     );
     assert.equal(wrongRollNumberResponse.status, 404);
@@ -361,7 +393,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
             body: JSON.stringify({
                 rating: 1,
                 comment: "Wrong user",
-                rollNumber: "WRONG-ROLL"
+                rollNumber: "25CSE999"
             })
         }
     );
@@ -393,7 +425,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
             body: JSON.stringify({
                 rating: 5,
                 comment: "Thank you.",
-                rollNumber: "TEST-001"
+                rollNumber: "25CSE001"
             })
         }
     );
@@ -430,7 +462,7 @@ test("public stats endpoint returns aggregates and every status change is tracke
 
     const complaintPayload = {
         studentName: "Stats Student",
-        rollNumber: "STATS-001",
+        rollNumber: "25CSE002",
         category: "Wi-Fi / Internet Issue",
         categoryCode: "wifi",
         building: "Engineering",
@@ -506,7 +538,7 @@ test("public stats endpoint returns aggregates and every status change is tracke
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rollNumber: "STATS-001" })
+            body: JSON.stringify({ rollNumber: "25CSE002" })
         }
     );
     assert.equal(trackedResponse.status, 200);
@@ -646,44 +678,58 @@ test("student accounts verify passwords and only expose their own complaints", a
 
     const shortPassword = await post("/api/student/register", {
         studentName: "Short Pass",
-        rollNumber: "CS-999",
+        rollNumber: "25CSE999",
         password: "short"
     });
     assert.equal(shortPassword.status, 400);
 
+    const badRollFormat = await post("/api/student/register", {
+        studentName: "Bad Roll",
+        rollNumber: "25/CSE/38",
+        password: "strong-pass-1"
+    });
+    assert.equal(badRollFormat.status, 400);
+    assert.match((await badRollFormat.json()).error, /25CSE38/);
+
+    const badLoginFormat = await post("/api/student/login", {
+        rollNumber: "25.CSE.38",
+        password: "strong-pass-1"
+    });
+    assert.equal(badLoginFormat.status, 400);
+
     const registerA = await post("/api/student/register", {
         studentName: "Asha",
-        rollNumber: "CS-100",
+        rollNumber: "25cse100",
         password: "strong-pass-1"
     });
     assert.equal(registerA.status, 201);
     const registeredA = await registerA.json();
     assert.equal(registeredA.authenticated, true);
-    assert.equal(registeredA.rollNumber, "CS-100");
+    assert.equal(registeredA.rollNumber, "25CSE100");
     const cookieA = registerA.headers.get("set-cookie").split(";")[0];
 
     const duplicate = await post("/api/student/register", {
         studentName: "Asha Again",
-        rollNumber: "cs-100",
+        rollNumber: "25cse100",
         password: "another-pass-1"
     });
     assert.equal(duplicate.status, 409);
 
     const wrongPassword = await post("/api/student/login", {
-        rollNumber: "CS-100",
+        rollNumber: "25CSE100",
         password: "not-the-password"
     });
     assert.equal(wrongPassword.status, 401);
 
     const unknownStudent = await post("/api/student/login", {
-        rollNumber: "CS-404",
+        rollNumber: "25CSE404",
         password: "strong-pass-1"
     });
     assert.equal(unknownStudent.status, 401);
 
     const registerB = await post("/api/student/register", {
         studentName: "Bilal",
-        rollNumber: "CS-200",
+        rollNumber: "25CSE200",
         password: "strong-pass-2"
     });
     assert.equal(registerB.status, 201);
@@ -704,14 +750,14 @@ test("student accounts verify passwords and only expose their own complaints", a
 
     const complaintA = await post(
         "/api/complaints",
-        complaintPayload("CS-100", "Wi-Fi is not working for CS-100.")
+        complaintPayload("25CSE100", "Wi-Fi is not working for CS-100.")
     );
     assert.equal(complaintA.status, 201);
     const createdA = await complaintA.json();
 
     const complaintB = await post(
         "/api/complaints",
-        complaintPayload("CS-200", "Wi-Fi is not working for CS-200.")
+        complaintPayload("25CSE200", "Wi-Fi is not working for CS-200.")
     );
     assert.equal(complaintB.status, 201);
     const createdB = await complaintB.json();
@@ -738,8 +784,8 @@ test("student accounts verify passwords and only expose their own complaints", a
     // A token signed with the old hard-coded secret must not be accepted.
     const forgedPayload = Buffer.from(
         JSON.stringify({
-            rollKey: "cs-100",
-            rollNumber: "CS-100",
+            rollKey: "25cse100",
+            rollNumber: "25CSE100",
             studentName: "Asha",
             pv: "0".repeat(16),
             expiresAt: Date.now() + 60_000
@@ -767,7 +813,7 @@ test("student accounts verify passwords and only expose their own complaints", a
     });
     const sessionAData = await sessionA.json();
     assert.equal(sessionAData.authenticated, true);
-    assert.equal(sessionAData.rollNumber, "CS-100");
+    assert.equal(sessionAData.rollNumber, "25CSE100");
 
     const teacherLogin = await post("/api/admin/login", {
         username: "teacher",

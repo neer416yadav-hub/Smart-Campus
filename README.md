@@ -53,7 +53,7 @@ These credentials are for local testing only. The login page does not display th
 
 ## Student accounts
 
-Students create an account on the login page (`/login.html`) with their name, roll number, and a password of at least 8 characters. Accounts are stored in the `students` table, and passwords are kept only as salted scrypt hashes. Logging in sets a signed, HttpOnly `smartCampusStudentSession` cookie. `GET /api/student/complaints` returns only the complaints submitted with that account's roll number, and the cookie is tied to the stored password hash so replacing a password invalidates old sessions. Registration and login are rate limited. The admin dashboard is not accessible with a student account.
+Students create an account on the login page (`/login.html`) with their name, roll number, and a password of at least 8 characters. Roll numbers use a year-branch-number format such as `25CSE38` (2- or 4-digit admission year, 2–5 letter branch code, 1–4 digit number); spaces, slashes, dots and other punctuation are rejected, and the value is stored in capitals. Accounts are stored in the `students` table, and passwords are kept only as salted scrypt hashes. Logging in sets a signed, HttpOnly `smartCampusStudentSession` cookie. `GET /api/student/complaints` returns only the complaints submitted with that account's roll number, and the cookie is tied to the stored password hash so replacing a password invalidates old sessions. Registration and login are rate limited. The admin dashboard is not accessible with a student account.
 
 ## Backend API
 
