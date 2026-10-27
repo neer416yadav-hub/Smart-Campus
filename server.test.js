@@ -3,7 +3,41 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createApp, describeDatabaseUrl, explainDatabaseError, normalizeDatabaseError } = require("./server");
+const { createApp, describeDatabaseUrl, explainDatabaseError, normalizeDatabaseError, resolveDatabaseUrl } = require("./server");
+
+test("database URL resolution accepts Supabase integration env names", () => {
+    const pooled =
+        "postgres://postgres.abcdefgh:secret@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true";
+
+    const fromPostgresUrl = resolveDatabaseUrl({ POSTGRES_URL: pooled });
+    assert.match(fromPostgresUrl, /^postgres:\/\/postgres\.abcdefgh:secret@/);
+    assert.match(fromPostgresUrl, /sslmode=require/);
+    assert.match(fromPostgresUrl, /pgbouncer=true/);
+
+    assert.equal(
+        resolveDatabaseUrl({
+            DATABASE_URL: "postgres://primary@db.example.com:5432/postgres",
+            POSTGRES_URL: pooled
+        }),
+        "postgres://primary@db.example.com:5432/postgres?sslmode=require"
+    );
+
+    assert.equal(
+        resolveDatabaseUrl({
+            POSTGRES_URL_NON_POOLING: "postgres://fallback@db.example.com:5432/postgres"
+        }),
+        "postgres://fallback@db.example.com:5432/postgres?sslmode=require"
+    );
+
+    assert.equal(
+        resolveDatabaseUrl({
+            DATABASE_URL: "postgres://local@localhost:5432/postgres"
+        }),
+        "postgres://local@localhost:5432/postgres"
+    );
+
+    assert.equal(resolveDatabaseUrl({}), undefined);
+});
 
 test("production setup refuses missing database and secure admin credentials", () => {
     const environment = {

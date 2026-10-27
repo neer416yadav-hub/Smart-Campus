@@ -934,6 +934,46 @@ async function initializePostgres(
 }
 
 
+// Vercel's Supabase integration stores the connection string as POSTGRES_URL
+// (pooled) and POSTGRES_URL_NON_POOLING instead of DATABASE_URL. Accept those
+// names too, so a marketplace-connected database works without copying values.
+const DATABASE_URL_ENV_KEYS = [
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING"
+];
+
+
+function ensureSslMode(connectionString) {
+    try {
+        const url = new URL(connectionString);
+        const isLocal = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+
+        if (!isLocal && !url.searchParams.has("sslmode")) {
+            url.searchParams.set("sslmode", "require");
+        }
+
+        return url.toString();
+    } catch (error) {
+        return connectionString;
+    }
+}
+
+
+function resolveDatabaseUrl(environment = process.env) {
+    for (const key of DATABASE_URL_ENV_KEYS) {
+        const value = environment[key];
+
+        if (typeof value === "string" && value.trim()) {
+            return ensureSslMode(value.trim());
+        }
+    }
+
+    return undefined;
+}
+
+
 function createApp(options = {}) {
     const serverless = options.serverless ?? false;
     const databasePath =
@@ -943,7 +983,7 @@ function createApp(options = {}) {
             ? path.join(os.tmpdir(), "smart-campus.sqlite")
             : DEFAULT_DATABASE_PATH);
     const isProduction = process.env.NODE_ENV === "production";
-    const databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
+    const databaseUrl = options.databaseUrl || resolveDatabaseUrl();
     const usePostgres = Boolean(databaseUrl);
     const demoMode = serverless && !usePostgres;
 
@@ -2059,6 +2099,8 @@ if (require.main === module) {
 module.exports = {
     createApp,
     describeDatabaseUrl,
+    ensureSslMode,
     explainDatabaseError,
-    normalizeDatabaseError
+    normalizeDatabaseError,
+    resolveDatabaseUrl
 };

@@ -2,8 +2,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { Pool } = require("pg");
+const { resolveDatabaseUrl } = require("../server");
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = resolveDatabaseUrl();
 const overwrite = process.argv.includes("--overwrite");
 const sqlitePath =
     process.env.DATABASE_PATH ||
@@ -11,7 +12,9 @@ const sqlitePath =
 
 if (!databaseUrl) {
     console.error(
-        "DATABASE_URL is not set. Use the Supabase Session Pooler connection string."
+        "No database URL is set. Use the Supabase Session Pooler connection " +
+            "string as DATABASE_URL (or POSTGRES_URL from the Vercel Supabase " +
+            "integration)."
     );
     process.exit(1);
 }
