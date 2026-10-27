@@ -708,6 +708,116 @@
 
             </section>
 
+
+            <!-- STUDENT ACCOUNTS -->
+
+            <section class="complaints-section">
+
+                <div class="section-heading">
+
+                    <div>
+
+                        <h2>
+                            Student Accounts
+                        </h2>
+
+                        <p>
+                            One roll number = one student. Reset a password or correct a name.
+                        </p>
+
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+
+                        <span
+                            id="studentResultCount"
+                            class="result-count"
+                        >
+                            0 students
+                        </span>
+
+                        <button
+                            id="refreshStudentsButton"
+                            class="toolbar-button"
+                            type="button"
+                        >
+                            ↻ Refresh
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div class="filters">
+
+                    <div class="filter-group">
+
+                        <label for="studentSearchInput">
+                            Search
+                        </label>
+
+                        <input
+                            type="text"
+                            id="studentSearchInput"
+                            placeholder="Roll number or student name"
+                        >
+
+                    </div>
+
+                </div>
+
+
+                <div class="table-container">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>
+                                    Roll Number
+                                </th>
+
+                                <th>
+                                    Student Name
+                                </th>
+
+                                <th>
+                                    Complaints
+                                </th>
+
+                                <th>
+                                    Account
+                                </th>
+
+                                <th>
+                                    Actions
+                                </th>
+
+                            </tr>
+
+                        </thead>
+
+                        <tbody
+                            id="studentTableBody"
+                        ></tbody>
+
+                    </table>
+
+                </div>
+
+
+                <div
+                    id="noStudents"
+                    class="no-complaints"
+                >
+                    No student accounts found.
+                </div>
+
+            </section>
+
         </main>
 
 
@@ -720,6 +830,174 @@
             </p>
 
         </footer>
+
+
+        <!-- HIGH PRIORITY POPUP -->
+
+        <div
+            id="highPriorityModal"
+            class="hp-modal"
+            hidden
+        >
+
+            <div class="hp-modal-backdrop" data-hp-close></div>
+
+            <div
+                class="hp-modal-card hp-modal-card-alert"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="hpModalTitle"
+            >
+
+                <div class="hp-modal-head">
+
+                    <span class="hp-modal-icon">🚨</span>
+
+                    <div>
+
+                        <h3 id="hpModalTitle">
+                            High-priority complaint
+                        </h3>
+
+                        <p id="hpModalSubtitle"></p>
+
+                    </div>
+
+                    <button
+                        type="button"
+                        class="hp-modal-close"
+                        data-hp-close
+                        aria-label="Close alert"
+                    >
+                        ×
+                    </button>
+
+                </div>
+
+                <ul id="hpModalList" class="hp-modal-list"></ul>
+
+                <div class="hp-modal-actions">
+
+                    <button
+                        type="button"
+                        id="hpModalView"
+                        class="toolbar-button"
+                    >
+                        Show high priority
+                    </button>
+
+                    <button
+                        type="button"
+                        class="toolbar-button"
+                        data-hp-close
+                    >
+                        Dismiss
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- STUDENT EDIT POPUP -->
+
+        <div
+            id="studentEditModal"
+            class="hp-modal"
+            hidden
+        >
+
+            <div class="hp-modal-backdrop" data-student-close></div>
+
+            <div
+                class="hp-modal-card"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="studentEditTitle"
+            >
+
+                <div class="hp-modal-head">
+
+                    <span class="hp-modal-icon">🔑</span>
+
+                    <div>
+
+                        <h3 id="studentEditTitle">
+                            Edit student account
+                        </h3>
+
+                        <p id="studentEditSubtitle"></p>
+
+                    </div>
+
+                    <button
+                        type="button"
+                        class="hp-modal-close"
+                        data-student-close
+                        aria-label="Close"
+                    >
+                        ×
+                    </button>
+
+                </div>
+
+                <form id="studentEditForm" class="hp-modal-form">
+
+                    <label for="editStudentName">
+                        Student name
+                        <input
+                            type="text"
+                            id="editStudentName"
+                            maxlength="100"
+                            autocomplete="off"
+                        >
+                    </label>
+
+                    <label for="editStudentPassword">
+                        New password
+                        <input
+                            type="password"
+                            id="editStudentPassword"
+                            minlength="8"
+                            maxlength="200"
+                            placeholder="At least 8 characters"
+                            autocomplete="new-password"
+                        >
+                    </label>
+
+                    <p
+                        id="studentEditMessage"
+                        class="login-error"
+                        role="alert"
+                    ></p>
+
+                    <div class="hp-modal-actions">
+
+                        <button
+                            type="submit"
+                            id="saveStudentButton"
+                            class="toolbar-button"
+                        >
+                            Save changes
+                        </button>
+
+                        <button
+                            type="button"
+                            class="toolbar-button"
+                            data-student-close
+                        >
+                            Cancel
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
 
     </section>
 

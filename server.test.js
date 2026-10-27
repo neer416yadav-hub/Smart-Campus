@@ -5,12 +5,17 @@ const path = require("node:path");
 const test = require("node:test");
 const { createApp, describeDatabaseUrl, explainDatabaseError, isValidRollNumber, normalizeDatabaseError, normalizeRollNumber, resolveDatabaseUrl } = require("./server");
 
-test("roll numbers use the year-branch-number format", () => {
-    for (const valid of ["25CSE38", "25cse38", "2025ECE118", "24ME9"]) {
+test("roll numbers are limited to the 25CSE01-25CSE65 class range", () => {
+    for (const valid of ["25CSE01", "25CSE38", "25cse65", " 25CSE09 "]) {
         assert.equal(isValidRollNumber(valid), true, valid);
     }
 
     for (const invalid of [
+        "25CSE00",
+        "25CSE66",
+        "25CSE100",
+        "2025CSE38",
+        "24ME9",
         "25/CSE/38",
         "25.CSE.38",
         "25 CSE 38",
@@ -209,6 +214,53 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
     assert.equal(hindiEmergency.priority, "High");
     assert.equal(hindiEmergency.emergency, true);
 
+    const priorityExamples = [
+        {
+            description: "Lift is stuck and two students are trapped inside.",
+            priority: "High"
+        },
+        {
+            description: "Hostel me lift band ho gayi hai, ek student phas gaya hai.",
+            priority: "High"
+        },
+        {
+            description: "Water is leaking near the electric socket in the lab.",
+            priority: "High"
+        },
+        {
+            description: "Gas cylinder leak in the hostel mess kitchen.",
+            priority: "High"
+        },
+        {
+            description: "The fan in the classroom is sparking and giving smoke.",
+            priority: "High"
+        },
+        {
+            // "current" alone must not mark a normal complaint as an emergency.
+            description: "The current semester timetable is not working.",
+            priority: "Medium"
+        }
+    ];
+
+    for (const example of priorityExamples) {
+        const response = await fetch(`${baseUrl}/api/ai/suggest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ description: example.description })
+        });
+        const result = await response.json();
+        assert.equal(
+            result.priority,
+            example.priority,
+            `${example.description} -> ${result.priority}`
+        );
+        assert.equal(
+            result.emergency,
+            example.priority === "High",
+            example.description
+        );
+    }
+
     const uncertainResponse = await fetch(`${baseUrl}/api/ai/suggest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -260,9 +312,27 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
     }
     assert.equal(rateLimitedResponse.status, 429);
 
+    const studentRegisterResponse = await fetch(
+        `${baseUrl}/api/student/register`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                studentName: "Test Student",
+                rollNumber: "25CSE01",
+                password: "test-student-pass"
+            })
+        }
+    );
+    assert.equal(studentRegisterResponse.status, 201);
+    const studentCookie = studentRegisterResponse.headers
+        .get("set-cookie")
+        .split(";")[0];
+
     const complaintPayload = {
-        studentName: "Test Student",
-        rollNumber: "25CSE001",
+        // Identity fields are ignored: the server takes them from the session.
+        studentName: "Someone Else",
+        rollNumber: "25CSE02",
         category: "Wi-Fi / Internet Issue",
         categoryCode: "wifi",
         building: "Engineering",
@@ -273,14 +343,26 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
         department: "IT Department"
     };
 
-    const createdResponse = await fetch(`${baseUrl}/api/complaints`, {
+    const anonymousComplaint = await fetch(`${baseUrl}/api/complaints`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(complaintPayload)
+    });
+    assert.equal(anonymousComplaint.status, 401);
+
+    const createdResponse = await fetch(`${baseUrl}/api/complaints`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Cookie: studentCookie
+        },
         body: JSON.stringify(complaintPayload)
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json();
     assert.match(created.complaintId, /^SC-\d{4}-0001$/);
+    assert.equal(created.studentName, "Test Student");
+    assert.equal(created.rollNumber, "25CSE01");
     assert.equal(created.department, "IT Department");
     assert.equal(created.category, "Wi-Fi / Internet Issue");
     assert.equal(created.priority, "Medium");
@@ -289,20 +371,12 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
     assert.equal(created.aiAssessment.similarComplaintsCount, 0);
     assert.match(created.aiAssessment.summary, /Wi-Fi is not working/);
 
-    const badRollResponse = await fetch(`${baseUrl}/api/complaints`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            ...complaintPayload,
-            rollNumber: "25/CSE/001"
-        })
-    });
-    assert.equal(badRollResponse.status, 400);
-    assert.match((await badRollResponse.json()).error, /25CSE38/);
-
     const mismatchedCategoryResponse = await fetch(`${baseUrl}/api/complaints`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            Cookie: studentCookie
+        },
         body: JSON.stringify({
             ...complaintPayload,
             category: "Sanitation / Cleanliness"
@@ -316,7 +390,10 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
 
     const missingOtherCategoryResponse = await fetch(`${baseUrl}/api/complaints`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            Cookie: studentCookie
+        },
         body: JSON.stringify({
             ...complaintPayload,
             category: "Other",
@@ -328,7 +405,10 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
 
     const secondCreatedResponse = await fetch(`${baseUrl}/api/complaints`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            Cookie: studentCookie
+        },
         body: JSON.stringify(complaintPayload)
     });
     assert.equal(secondCreatedResponse.status, 201);
@@ -344,7 +424,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rollNumber: "25CSE001" })
+            body: JSON.stringify({ rollNumber: "25CSE01" })
         }
     );
     assert.equal(trackedResponse.status, 200);
@@ -361,7 +441,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rollNumber: "25CSE999" })
+            body: JSON.stringify({ rollNumber: "25CSE02" })
         }
     );
     assert.equal(wrongRollNumberResponse.status, 404);
@@ -407,7 +487,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
             body: JSON.stringify({
                 rating: 1,
                 comment: "Wrong user",
-                rollNumber: "25CSE999"
+                rollNumber: "25CSE02"
             })
         }
     );
@@ -439,7 +519,7 @@ test("complaints can be submitted, tracked, and updated by an admin", async (t) 
             body: JSON.stringify({
                 rating: 5,
                 comment: "Thank you.",
-                rollNumber: "25CSE001"
+                rollNumber: "25CSE01"
             })
         }
     );
@@ -476,7 +556,7 @@ test("public stats endpoint returns aggregates and every status change is tracke
 
     const complaintPayload = {
         studentName: "Stats Student",
-        rollNumber: "25CSE002",
+        rollNumber: "25CSE02",
         category: "Wi-Fi / Internet Issue",
         categoryCode: "wifi",
         building: "Engineering",
@@ -487,9 +567,29 @@ test("public stats endpoint returns aggregates and every status change is tracke
         department: "IT Department"
     };
 
+    const statsStudentResponse = await fetch(
+        `${baseUrl}/api/student/register`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                studentName: "Stats Student",
+                rollNumber: "25CSE02",
+                password: "stats-student-pass"
+            })
+        }
+    );
+    assert.equal(statsStudentResponse.status, 201);
+    const statsStudentCookie = statsStudentResponse.headers
+        .get("set-cookie")
+        .split(";")[0];
+
     const createdResponse = await fetch(`${baseUrl}/api/complaints`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            Cookie: statsStudentCookie
+        },
         body: JSON.stringify(complaintPayload)
     });
     assert.equal(createdResponse.status, 201);
@@ -552,7 +652,7 @@ test("public stats endpoint returns aggregates and every status change is tracke
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rollNumber: "25CSE002" })
+            body: JSON.stringify({ rollNumber: "25CSE02" })
         }
     );
     assert.equal(trackedResponse.status, 200);
@@ -692,10 +792,20 @@ test("student accounts verify passwords and only expose their own complaints", a
 
     const shortPassword = await post("/api/student/register", {
         studentName: "Short Pass",
-        rollNumber: "25CSE999",
+        rollNumber: "25CSE12",
         password: "short"
     });
     assert.equal(shortPassword.status, 400);
+
+    for (const outOfRange of ["25CSE00", "25CSE66", "25CSE100", "2025CSE38"]) {
+        const response = await post("/api/student/register", {
+            studentName: "Out Of Range",
+            rollNumber: outOfRange,
+            password: "strong-pass-1"
+        });
+        assert.equal(response.status, 400, outOfRange);
+        assert.match((await response.json()).error, /25CSE01 and 25CSE65/);
+    }
 
     const badRollFormat = await post("/api/student/register", {
         studentName: "Bad Roll",
@@ -713,37 +823,37 @@ test("student accounts verify passwords and only expose their own complaints", a
 
     const registerA = await post("/api/student/register", {
         studentName: "Asha",
-        rollNumber: "25cse100",
+        rollNumber: "25cse10",
         password: "strong-pass-1"
     });
     assert.equal(registerA.status, 201);
     const registeredA = await registerA.json();
     assert.equal(registeredA.authenticated, true);
-    assert.equal(registeredA.rollNumber, "25CSE100");
+    assert.equal(registeredA.rollNumber, "25CSE10");
     const cookieA = registerA.headers.get("set-cookie").split(";")[0];
 
     const duplicate = await post("/api/student/register", {
         studentName: "Asha Again",
-        rollNumber: "25cse100",
+        rollNumber: "25cse10",
         password: "another-pass-1"
     });
     assert.equal(duplicate.status, 409);
 
     const wrongPassword = await post("/api/student/login", {
-        rollNumber: "25CSE100",
+        rollNumber: "25CSE10",
         password: "not-the-password"
     });
     assert.equal(wrongPassword.status, 401);
 
     const unknownStudent = await post("/api/student/login", {
-        rollNumber: "25CSE404",
+        rollNumber: "25CSE60",
         password: "strong-pass-1"
     });
     assert.equal(unknownStudent.status, 401);
 
     const registerB = await post("/api/student/register", {
         studentName: "Bilal",
-        rollNumber: "25CSE200",
+        rollNumber: "25CSE11",
         password: "strong-pass-2"
     });
     assert.equal(registerB.status, 201);
@@ -762,19 +872,35 @@ test("student accounts verify passwords and only expose their own complaints", a
         };
     }
 
+    const anonymousComplaint = await post(
+        "/api/complaints",
+        complaintPayload("25CSE10", "Wi-Fi is not working for everyone.")
+    );
+    assert.equal(anonymousComplaint.status, 401);
+
+    // The body identity is ignored: the server stores the logged-in account.
     const complaintA = await post(
         "/api/complaints",
-        complaintPayload("25CSE100", "Wi-Fi is not working for CS-100.")
+        {
+            ...complaintPayload("25CSE11", "Wi-Fi is not working for Asha."),
+            studentName: "Mallory"
+        },
+        cookieA
     );
     assert.equal(complaintA.status, 201);
     const createdA = await complaintA.json();
+    assert.equal(createdA.studentName, "Asha");
+    assert.equal(createdA.rollNumber, "25CSE10");
 
     const complaintB = await post(
         "/api/complaints",
-        complaintPayload("25CSE200", "Wi-Fi is not working for CS-200.")
+        complaintPayload("25CSE10", "Wi-Fi is not working for Bilal."),
+        cookieB
     );
     assert.equal(complaintB.status, 201);
     const createdB = await complaintB.json();
+    assert.equal(createdB.studentName, "Bilal");
+    assert.equal(createdB.rollNumber, "25CSE11");
 
     const noSession = await fetch(`${baseUrl}/api/student/complaints`);
     assert.equal(noSession.status, 401);
@@ -798,8 +924,8 @@ test("student accounts verify passwords and only expose their own complaints", a
     // A token signed with the old hard-coded secret must not be accepted.
     const forgedPayload = Buffer.from(
         JSON.stringify({
-            rollKey: "25cse100",
-            rollNumber: "25CSE100",
+            rollKey: "25cse10",
+            rollNumber: "25CSE10",
             studentName: "Asha",
             pv: "0".repeat(16),
             expiresAt: Date.now() + 60_000
@@ -827,7 +953,7 @@ test("student accounts verify passwords and only expose their own complaints", a
     });
     const sessionAData = await sessionA.json();
     assert.equal(sessionAData.authenticated, true);
-    assert.equal(sessionAData.rollNumber, "25CSE100");
+    assert.equal(sessionAData.rollNumber, "25CSE10");
 
     const teacherLogin = await post("/api/admin/login", {
         username: "teacher",
@@ -848,6 +974,104 @@ test("student accounts verify passwords and only expose their own complaints", a
     const adminSessionData = await adminSession.json();
     assert.equal(adminSessionData.authenticated, true);
     assert.equal(adminSessionData.role, "admin");
+
+    const studentsResponse = await fetch(`${baseUrl}/api/admin/students`, {
+        headers: { Cookie: adminCookie }
+    });
+    assert.equal(studentsResponse.status, 200);
+    const students = await studentsResponse.json();
+    assert.equal(students.length, 2);
+    const asha = students.find((student) => student.rollNumber === "25CSE10");
+    assert.equal(asha.studentName, "Asha");
+    assert.equal(asha.complaintCount, 1);
+    assert.equal(asha.allowed, true);
+
+    const resetResponse = await fetch(
+        `${baseUrl}/api/admin/students/25cse10`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Cookie: adminCookie
+            },
+            body: JSON.stringify({ password: "reset-pass-123" })
+        }
+    );
+    assert.equal(resetResponse.status, 200);
+    const resetBody = await resetResponse.json();
+    assert.equal(resetBody.updated, true);
+    assert.equal(resetBody.passwordChanged, true);
+
+    // Reset invalidates the old session and the old password.
+    const oldSession = await fetch(`${baseUrl}/api/student/session`, {
+        headers: { Cookie: cookieA }
+    });
+    assert.equal((await oldSession.json()).authenticated, false);
+
+    const oldPasswordLogin = await post("/api/student/login", {
+        rollNumber: "25CSE10",
+        password: "strong-pass-1"
+    });
+    assert.equal(oldPasswordLogin.status, 401);
+
+    const newPasswordLogin = await post("/api/student/login", {
+        rollNumber: "25cse10",
+        password: "reset-pass-123"
+    });
+    assert.equal(newPasswordLogin.status, 200);
+    assert.equal((await newPasswordLogin.json()).rollNumber, "25CSE10");
+
+    const shortReset = await fetch(
+        `${baseUrl}/api/admin/students/25CSE10`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Cookie: adminCookie
+            },
+            body: JSON.stringify({ password: "short" })
+        }
+    );
+    assert.equal(shortReset.status, 400);
+
+    const unknownReset = await fetch(
+        `${baseUrl}/api/admin/students/25CSE63`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Cookie: adminCookie
+            },
+            body: JSON.stringify({ password: "reset-pass-123" })
+        }
+    );
+    assert.equal(unknownReset.status, 404);
+
+    const renameResponse = await fetch(
+        `${baseUrl}/api/admin/students/25CSE10`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Cookie: adminCookie
+            },
+            body: JSON.stringify({ studentName: "Asha Verma" })
+        }
+    );
+    assert.equal(renameResponse.status, 200);
+    const renameBody = await renameResponse.json();
+    assert.equal(renameBody.studentName, "Asha Verma");
+    assert.equal(renameBody.complaintsUpdated, 1);
+
+    const complaintsAfterRename = await fetch(
+        `${baseUrl}/api/admin/complaints`,
+        { headers: { Cookie: adminCookie } }
+    );
+    const renamedComplaints = await complaintsAfterRename.json();
+    const renamedA = renamedComplaints.find(
+        (complaint) => complaint.complaintId === createdA.complaintId
+    );
+    assert.equal(renamedA.studentName, "Asha Verma");
 
     const logout = await fetch(`${baseUrl}/api/admin/logout`, {
         method: "POST",

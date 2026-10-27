@@ -67,6 +67,7 @@ document.addEventListener(
         setupDashboard();
         setupExportCsv();
         setupAutoRefresh();
+        setupStudents();
         checkLogin();
 
     }
@@ -240,6 +241,7 @@ function showDashboard() {
 
 
     loadComplaints();
+    loadStudents();
 
 }
 
@@ -634,6 +636,9 @@ async function loadComplaints(options = {}) {
     displayComplaints(
         complaints
     );
+
+
+    handleHighPriorityAlerts(all);
 
 
     markUpdated();
@@ -3113,6 +3118,429 @@ function getPriorityClass(
     return "low";
 
 }
+
+
+// ==========================================
+// HIGH PRIORITY POPUP
+// ==========================================
+
+const HIGH_PRIORITY_SEEN_KEY = "sc-admin-seen-high-priority";
+
+function isHighPriorityComplaint(complaint) {
+    return Boolean(
+        complaint &&
+        (
+            complaint.priority === "High" ||
+            (
+                complaint.aiAssessment &&
+                complaint.aiAssessment.emergency
+            )
+        )
+    );
+}
+
+function handleHighPriorityAlerts(complaints) {
+    const open = complaints.filter(function (complaint) {
+        return (
+            isHighPriorityComplaint(complaint) &&
+            complaint.status !== "Resolved"
+        );
+    });
+
+    let seen = null;
+    try {
+        const raw = window.localStorage.getItem(HIGH_PRIORITY_SEEN_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        seen = Array.isArray(parsed) ? parsed : null;
+    } catch (error) {
+        seen = [];
+    }
+
+    const currentIds = open.map(function (complaint) {
+        return complaint.complaintId;
+    });
+
+    if (!Array.isArray(seen)) {
+        // First load on this browser: remember what is already there, but
+        // still alert for genuinely recent high-priority complaints.
+        try {
+            window.localStorage.setItem(
+                HIGH_PRIORITY_SEEN_KEY,
+                JSON.stringify(currentIds)
+            );
+        } catch (error) {
+            // Storage can be unavailable in private mode; ignore it.
+        }
+
+        const recent = open.filter(function (complaint) {
+            return (
+                Number(complaint.createdAt) >
+                Date.now() - 30 * 60 * 1000
+            );
+        });
+
+        if (recent.length > 0) {
+            showHighPriorityModal(recent);
+        }
+        return;
+    }
+
+    const fresh = open.filter(function (complaint) {
+        return seen.indexOf(complaint.complaintId) === -1;
+    });
+
+    try {
+        const merged = Array.from(
+            new Set(seen.concat(currentIds))
+        );
+        window.localStorage.setItem(
+            HIGH_PRIORITY_SEEN_KEY,
+            JSON.stringify(merged)
+        );
+    } catch (error) {
+        // Ignore storage failures.
+    }
+
+    if (fresh.length > 0) {
+        showHighPriorityModal(fresh);
+    }
+}
+
+function showHighPriorityModal(complaints) {
+    const modal = document.getElementById("highPriorityModal");
+    const list = document.getElementById("hpModalList");
+    const title = document.getElementById("hpModalTitle");
+    const subtitle = document.getElementById("hpModalSubtitle");
+
+    if (!modal || !list || !title || !subtitle) {
+        return;
+    }
+
+    title.textContent =
+        complaints.length === 1
+            ? "New high-priority complaint"
+            : complaints.length + " new high-priority complaints";
+
+    subtitle.textContent =
+        "Please review these immediately. AI can be wrong, but treat them as urgent.";
+
+    const shown = complaints.slice(0, 5).map(function (complaint) {
+        return (
+            "<li>" +
+            "<strong>" + safe(complaint.complaintId) + "</strong> — " +
+            safe(complaint.category) +
+            "<br>" +
+            safe(buildLocationText(complaint)) +
+            "<br><span class=\"priority-badge high\">High priority</span>" +
+            "</li>"
+        );
+    }).join("");
+
+    const extra = complaints.length > 5
+        ? "<li>And " + (complaints.length - 5) + " more high-priority complaint(s).</li>"
+        : "";
+
+    list.innerHTML = shown + extra;
+    modal.hidden = false;
+
+    modal.querySelectorAll("[data-hp-close]").forEach(function (element) {
+        element.onclick = function () {
+            modal.hidden = true;
+        };
+    });
+
+    const viewButton = document.getElementById("hpModalView");
+    if (viewButton) {
+        viewButton.onclick = function () {
+            modal.hidden = true;
+
+            const priorityFilter = document.getElementById("priorityFilter");
+            if (priorityFilter) {
+                priorityFilter.value = "High";
+            }
+
+            const statusFilter = document.getElementById("statusFilter");
+            if (statusFilter) {
+                statusFilter.value = "";
+            }
+
+            loadComplaints();
+
+            const section = document.querySelector(".complaints-section");
+            if (section) {
+                section.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        };
+    }
+}
+
+
+// ==========================================
+// STUDENT ACCOUNTS
+// ==========================================
+
+let studentCache = [];
+let editingStudentRoll = null;
+
+function setupStudents() {
+    const refreshButton = document.getElementById("refreshStudentsButton");
+    if (refreshButton) {
+        refreshButton.addEventListener("click", loadStudents);
+    }
+
+    const search = document.getElementById("studentSearchInput");
+    if (search) {
+        search.addEventListener("input", renderStudents);
+    }
+
+    const form = document.getElementById("studentEditForm");
+    if (form) {
+        form.addEventListener("submit", saveStudentEdit);
+    }
+
+    const modal = document.getElementById("studentEditModal");
+    if (modal) {
+        modal.querySelectorAll("[data-student-close]").forEach(function (element) {
+            element.onclick = function () {
+                modal.hidden = true;
+            };
+        });
+    }
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") {
+            return;
+        }
+
+        const highPriorityModal = document.getElementById("highPriorityModal");
+        if (highPriorityModal && !highPriorityModal.hidden) {
+            highPriorityModal.hidden = true;
+        }
+
+        if (modal && !modal.hidden) {
+            modal.hidden = true;
+        }
+    });
+}
+
+async function loadStudents() {
+    const tbody = document.getElementById("studentTableBody");
+    if (!tbody) {
+        return;
+    }
+
+    const refreshButton = document.getElementById("refreshStudentsButton");
+    if (refreshButton) {
+        refreshButton.classList.remove("is-spinning");
+        void refreshButton.offsetWidth;
+        refreshButton.classList.add("is-spinning");
+    }
+
+    try {
+        studentCache = await requestApi("/api/admin/students");
+        renderStudents();
+    } catch (error) {
+        console.error(error);
+        notify("Could not load student accounts: " + error.message, "error");
+    }
+}
+
+function renderStudents() {
+    const tbody = document.getElementById("studentTableBody");
+    if (!tbody) {
+        return;
+    }
+
+    const searchInput = document.getElementById("studentSearchInput");
+    const search = searchInput
+        ? searchInput.value.trim().toLowerCase()
+        : "";
+
+    const students = studentCache.filter(function (student) {
+        if (!search) {
+            return true;
+        }
+        return (
+            String(student.rollNumber || "").toLowerCase().indexOf(search) !== -1 ||
+            String(student.studentName || "").toLowerCase().indexOf(search) !== -1
+        );
+    });
+
+    const count = document.getElementById("studentResultCount");
+    if (count) {
+        count.textContent =
+            students.length + " student" + (students.length === 1 ? "" : "s");
+    }
+
+    const empty = document.getElementById("noStudents");
+    if (empty) {
+        empty.hidden = students.length > 0;
+        empty.textContent = studentCache.length === 0
+            ? "No student accounts yet. Students can register from the login page."
+            : "No student matches this search.";
+    }
+
+    tbody.innerHTML = students.map(function (student) {
+        const state = student.hasAccount
+            ? "<span class=\"student-account-state\">Account active</span>"
+            : "<span class=\"student-account-state legacy\">No account yet</span>";
+
+        let action;
+        if (student.hasAccount) {
+            action =
+                "<button type=\"button\" class=\"toolbar-button\" data-edit-student=\"" +
+                safe(student.rollNumber) +
+                "\">Reset / edit</button>";
+        } else if (student.allowed) {
+            action =
+                "<button type=\"button\" class=\"toolbar-button\" data-edit-student=\"" +
+                safe(student.rollNumber) +
+                "\">Create account</button>";
+        } else {
+            action =
+                "<span class=\"student-account-state legacy\">Legacy roll</span>";
+        }
+
+        return (
+            "<tr>" +
+            "<td><strong>" + safe(student.rollNumber) + "</strong></td>" +
+            "<td>" + safe(student.studentName) + "</td>" +
+            "<td>" + Number(student.complaintCount || 0) + "</td>" +
+            "<td>" + state + "</td>" +
+            "<td>" + action + "</td>" +
+            "</tr>"
+        );
+    }).join("");
+
+    tbody.querySelectorAll("[data-edit-student]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            openStudentEditor(button.getAttribute("data-edit-student"));
+        });
+    });
+}
+
+function openStudentEditor(rollNumber) {
+    const student = studentCache.find(function (item) {
+        return item.rollNumber === rollNumber;
+    });
+
+    editingStudentRoll = rollNumber;
+
+    const modal = document.getElementById("studentEditModal");
+    const title = document.getElementById("studentEditTitle");
+    const subtitle = document.getElementById("studentEditSubtitle");
+    const nameInput = document.getElementById("editStudentName");
+    const passwordInput = document.getElementById("editStudentPassword");
+    const message = document.getElementById("studentEditMessage");
+
+    if (!modal || !title || !subtitle || !nameInput || !passwordInput || !message) {
+        return;
+    }
+
+    title.textContent = student && student.hasAccount
+        ? "Edit " + rollNumber
+        : "Create account for " + rollNumber;
+
+    subtitle.textContent = student
+        ? "One roll number = one student. Changing the name also updates old complaints."
+        : "This roll appears only in old complaints. Set a name and password to create the account.";
+
+    nameInput.value = student ? student.studentName || "" : "";
+    passwordInput.value = "";
+    message.textContent = "";
+
+    modal.hidden = false;
+    nameInput.focus();
+}
+
+async function saveStudentEdit(event) {
+    event.preventDefault();
+
+    const rollNumber = editingStudentRoll;
+    const nameInput = document.getElementById("editStudentName");
+    const passwordInput = document.getElementById("editStudentPassword");
+    const message = document.getElementById("studentEditMessage");
+    const saveButton = document.getElementById("saveStudentButton");
+
+    if (!rollNumber || !nameInput || !passwordInput || !message) {
+        return;
+    }
+
+    const student = studentCache.find(function (item) {
+        return item.rollNumber === rollNumber;
+    });
+    const name = nameInput.value.trim();
+    const password = passwordInput.value;
+
+    const payload = {};
+    if (
+        name &&
+        (
+            !student ||
+            !student.hasAccount ||
+            name !== student.studentName
+        )
+    ) {
+        payload.studentName = name;
+    }
+    if (password) {
+        payload.password = password;
+    }
+
+    if (Object.keys(payload).length === 0) {
+        message.textContent = "Change the name or enter a new password.";
+        return;
+    }
+
+    if (password && password.length < 8) {
+        message.textContent = "Password must be at least 8 characters.";
+        return;
+    }
+
+    message.textContent = "";
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.textContent = "Saving…";
+    }
+
+    try {
+        const result = await requestApi(
+            "/api/admin/students/" + encodeURIComponent(rollNumber),
+            {
+                method: "PATCH",
+                body: JSON.stringify(payload)
+            }
+        );
+
+        const modal = document.getElementById("studentEditModal");
+        if (modal) {
+            modal.hidden = true;
+        }
+
+        let note = result.created
+            ? "Account created for " + result.rollNumber + "."
+            : "Updated " + result.rollNumber + ".";
+
+        if (result.passwordChanged) {
+            note += " Password reset.";
+        }
+        if (result.complaintsUpdated) {
+            note += " " + result.complaintsUpdated + " old complaint(s) updated.";
+        }
+
+        notify(note, "success");
+        await loadStudents();
+        await loadComplaints({ silent: true });
+    } catch (error) {
+        message.textContent = error.message;
+    } finally {
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.textContent = "Save changes";
+        }
+    }
+}
+
 
 
 // ==========================================

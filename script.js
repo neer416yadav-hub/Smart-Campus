@@ -5,15 +5,16 @@
 const HISTORY_KEY = "sc-complaint-history";
 const HISTORY_LIMIT = 12;
 
-// Roll numbers look like 25CSE38: 2- or 4-digit year, branch code, number.
-// Slashes, dots and spaces are not allowed.
-const ROLL_NUMBER_PATTERN = /^(?:\d{2}|\d{4})[A-Za-z]{2,5}\d{1,4}$/;
+// Only this year's CSE class is allowed: 25CSE01 through 25CSE65.
+const ROLL_NUMBER_PATTERN = /^25CSE(?:0[1-9]|[1-5]\d|6[0-5])$/;
 const ROLL_NUMBER_HINT =
-    "Roll number must look like 25CSE38 (year + branch + number, no spaces, slashes or dots).";
+    "Roll number must be between 25CSE01 and 25CSE65 (for example 25CSE38).";
 
 function sanitizeRollInput(value) {
     return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
+
+let studentSessionActive = false;
 
 function ui() {
     return window.SmartCampusUI || {};
@@ -76,11 +77,19 @@ async function setupStudentAuth() {
     try {
         const session = await requestApi('/api/student/session');
         if (session && session.authenticated) {
+            studentSessionActive = true;
             rollNumber = session.rollNumber || rollNumber;
             studentName = session.studentName || studentName;
             localStorage.setItem('userType', 'student');
             if (session.rollNumber) localStorage.setItem('rollNumber', session.rollNumber);
             if (session.studentName) localStorage.setItem('studentName', session.studentName);
+        } else {
+            studentSessionActive = false;
+            rollNumber = '';
+            studentName = '';
+            localStorage.removeItem('userType');
+            localStorage.removeItem('rollNumber');
+            localStorage.removeItem('studentName');
         }
     } catch (e) {
         // Fallback to localStorage values
@@ -98,6 +107,12 @@ async function setupStudentAuth() {
         }
         if (rollNumberInput && rollNumber && !rollNumberInput.value) {
             rollNumberInput.value = rollNumber;
+        }
+        if (studentNameInput) {
+            studentNameInput.readOnly = true;
+        }
+        if (rollNumberInput) {
+            rollNumberInput.readOnly = true;
         }
         if (trackingRollInput && rollNumber && !trackingRollInput.value) {
             trackingRollInput.value = rollNumber;
@@ -821,6 +836,20 @@ function setupComplaintForm() {
         async function (event) {
 
             event.preventDefault();
+
+
+            if (!studentSessionActive) {
+                notify(
+                    "Please log in with your roll number and password before submitting a complaint.",
+                    "error"
+                );
+
+                window.setTimeout(function () {
+                    window.location.href = "login.html?redirect=index.html";
+                }, 1400);
+
+                return;
+            }
 
 
             const studentName =

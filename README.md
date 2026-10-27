@@ -43,6 +43,7 @@ Admin dashboard (`admin.html`):
 - **Export CSV** button that downloads exactly the rows currently visible after filtering and sorting.
 - **Auto refresh** switch (every 15 seconds) with a "last updated" timestamp.
 - Search, filters, sorting, status updates, category correction, admin remarks and feedback viewing all work as before.
+- A popup alerts the admin when a new high-priority complaint arrives. The dashboard also lists every student account and lets the admin reset a password or correct a name; correcting a name updates that roll number's older complaints too.
 
 ## Local demo admin login
 
@@ -53,7 +54,7 @@ These credentials are for local testing only. The login page does not display th
 
 ## Student accounts
 
-Students create an account on the login page (`/login.html`) with their name, roll number, and a password of at least 8 characters. Roll numbers use a year-branch-number format such as `25CSE38` (2- or 4-digit admission year, 2–5 letter branch code, 1–4 digit number); spaces, slashes, dots and other punctuation are rejected, and the value is stored in capitals. Accounts are stored in the `students` table, and passwords are kept only as salted scrypt hashes. Logging in sets a signed, HttpOnly `smartCampusStudentSession` cookie. `GET /api/student/complaints` returns only the complaints submitted with that account's roll number, and the cookie is tied to the stored password hash so replacing a password invalidates old sessions. Registration and login are rate limited. The admin dashboard is not accessible with a student account.
+Students create an account on the login page (`/login.html`) with their name, roll number, and a password of at least 8 characters. Only the `25CSE01`–`25CSE65` roll numbers are accepted; the value is stored in capitals and spaces, slashes, dots and other punctuation are rejected. Each roll number can have only one account, and every new complaint takes the student's name and roll number from the signed-in account instead of the request body, so one roll number always shows one student name. Accounts are stored in the `students` table, and passwords are kept only as salted scrypt hashes. Logging in sets a signed, HttpOnly `smartCampusStudentSession` cookie. `GET /api/student/complaints` returns only the complaints submitted with that account's roll number, and the cookie is tied to the stored password hash so replacing a password invalidates old sessions. Registration and login are rate limited. The admin dashboard is not accessible with a student account.
 
 ## Backend API
 
@@ -63,7 +64,7 @@ Students create an account on the login page (`/login.html`) with their name, ro
 - `GET /api/student/session` — check whether a student is signed in
 - `GET /api/student/complaints` — complaints belonging to the signed-in student (student session required)
 - `POST /api/ai/suggest` — suggest a complaint category, department, and priority from its description
-- `POST /api/complaints` — create a complaint
+- `POST /api/complaints` — create a complaint (student session required; name and roll number come from the account)
 - `POST /api/complaints/:complaintId/track` — check tracking details using the complaint ID and roll number; private student details are not returned
 - `GET /api/stats` — public aggregate counters (total, by status, by priority, resolution rate, average resolution hours, average feedback rating, top categories/departments/buildings). No student data is returned
 - `PATCH /api/complaints/:complaintId/feedback` — submit feedback after resolution
@@ -71,6 +72,8 @@ Students create an account on the login page (`/login.html`) with their name, ro
 - `GET /api/admin/complaints` — list complaints (admin session required)
 - `PATCH /api/admin/complaints/:complaintId` — update status or admin remark
 - The same admin complaint endpoint accepts `categoryCode` to correct a complaint's category and responsible department.
+- `GET /api/admin/students` — list student accounts and roll numbers that only appear in old complaints (admin session required)
+- `PATCH /api/admin/students/:rollNumber` — reset a student's password and/or correct their name; correcting the name also updates that roll number's old complaints (admin session required)
 
 Every status change is recorded on the complaint as a `statusHistory` entry (status, timestamp, note). Setting a complaint to `Resolved` stamps `resolvedAt`; moving it back to another status clears that stamp, which is what the resolution-rate and average-resolution-time figures are computed from.
 

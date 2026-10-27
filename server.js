@@ -297,7 +297,8 @@ const PRIORITY_TERMS = {
         /\bburned wire\b/i,
         /\bwire burn(?:t|ed)\b/i,
         /\bwire jal(?: gai| gayi)?\b/i,
-        /\bcurrent\b/i,
+        /\b(?:high|heavy|live)\s+current\b/i,
+        /\bcurrent\s+(?:lag|nikal|aa|shock)\w*/i,
         /\bshock\b/i,
         /\bbroken glass\b/i,
         /\bdanger(?:ous)?\b/i,
@@ -336,7 +337,22 @@ const PRIORITY_TERMS = {
         /\bpaani bhar gaya\b/i,
         /\bchot lag/i,
         /\bjalne ki (?:gandh|smell)\b/i,
-        /\bkhatarnak\b/i
+        /\bkhatarnak\b/i,
+        // Lift / elevator emergencies.
+        /\b(?:lift|elevator)\b[^.!?]{0,40}\b(?:stuck|trapped|band|phas|fans|fail(?:ed)?|not working)\b/i,
+        /\b(?:stuck|trapped|phas)\b[^.!?]{0,25}\b(?:lift|elevator)\b/i,
+        /\blift\s+(?:mein|me|mein se)\s+(?:phas|fans|band)\b/i,
+        /लिफ्ट[^।.!?]{0,30}(?:फंस|बंद|खराब)/,
+        // Gas cylinder / stove leaks.
+        /\b(?:gas|cylinder|lpg)\b[^.!?]{0,35}\b(?:leak|smell|gandh|risav)\b/i,
+        /गैस[^।.!?]{0,25}(?:सिलेंडर|रिसाव|लीक|गंध)/,
+        // Water close to electricity is a shock risk.
+        /\b(?:water|paani|pani)\b[^.!?]{0,45}\b(?:electric|bijli|wire|socket|switch|current|board)\b/i,
+        /\b(?:electric|bijli|wire|socket|switch|current|board)\b[^.!?]{0,45}\b(?:water|paani|pani)\b/i,
+        /(?:पानी|पानी भर)[^।.!?]{0,35}(?:बिजली|तार|सॉकेट|स्विच)/,
+        // Sparks or smoke from any appliance.
+        /\b(?:spark|sparks|sparking|smoke|smoking|burning)\b[^.!?]{0,35}\b(?:machine|ac|fan|wire|socket|switch|board|plug|computer|projector|light)\b/i,
+        /\b(?:machine|ac|fan|wire|socket|switch|board|plug|computer|projector|light)\b[^.!?]{0,35}\b(?:spark|sparks|sparking|smoke|smoking|burning|burnt)\b/i
     ],
     issue: [
         /\bnot working\b/i,
@@ -818,13 +834,12 @@ function normalizeRollKey(rollNumber) {
 }
 
 
-// Roll numbers look like 25CSE38: a two- or four-digit admission year, a
-// branch code, and a numeric roll. Slashes, dots, spaces and other punctuation
-// are rejected so the same student cannot end up with several spellings.
-const ROLL_NUMBER_PATTERN = /^(?:\d{2}|\d{4})[A-Za-z]{2,5}\d{1,4}$/;
+// Only this year's CSE class is allowed: 25CSE01 through 25CSE65. Keeping the
+// range tight means one roll number can only ever belong to one student.
+const ROLL_NUMBER_PATTERN = /^25CSE(?:0[1-9]|[1-5]\d|6[0-5])$/;
 const ROLL_NUMBER_MESSAGE =
-    "Enter a valid roll number like 25CSE38 (year, branch and number only — " +
-    "no spaces, slashes or dots).";
+    "Roll number must be between 25CSE01 and 25CSE65 (for example 25CSE38) — " +
+    "no spaces, slashes or dots.";
 
 
 function normalizeRollNumber(rollNumber) {
@@ -1154,6 +1169,33 @@ function createApp(options = {}) {
         );
     }
 
+    // One roll number means one student. When an admin corrects an account
+    // name, older complaints for that roll are aligned too.
+    async function renameComplaintOwner(rollNumber, studentName) {
+        const key = normalizeRollKey(rollNumber);
+        const rows = await queryAll(
+            "SELECT complaint_json FROM complaints",
+            []
+        );
+        let updated = 0;
+
+        for (const row of rows) {
+            const complaint = JSON.parse(row.complaint_json);
+            if (normalizeRollKey(complaint.rollNumber || "") !== key) {
+                continue;
+            }
+            if (complaint.studentName === studentName) {
+                continue;
+            }
+
+            complaint.studentName = studentName;
+            await saveComplaint(complaint);
+            updated += 1;
+        }
+
+        return updated;
+    }
+
     async function generateComplaintId(year) {
         const existingIds = await queryAll(
             "SELECT complaint_id FROM complaints WHERE complaint_id LIKE ?",
@@ -1411,7 +1453,7 @@ function createApp(options = {}) {
         "Too many login attempts. Please wait 15 minutes and try again."
     );
     const limitStudentAuth = createRateLimiter(
-        15,
+        30,
         15 * 60 * 1000,
         "Too many student login attempts. Please wait 15 minutes and try again."
     );
@@ -1543,9 +1585,16 @@ function createApp(options = {}) {
         limitComplaintSubmissions,
         async (request, response) => {
         const body = request.body;
+        const session = await getStudentSession(request);
+
+        if (!session) {
+            return response.status(401).json({
+                error:
+                    "Please log in with your roll number and password before submitting a complaint."
+            });
+        }
+
         const requiredFields = [
-            "studentName",
-            "rollNumber",
             "category",
             "categoryCode",
             "building",
@@ -1566,7 +1615,10 @@ function createApp(options = {}) {
             });
         }
 
-        if (!isValidRollNumber(body.rollNumber)) {
+        const studentName = session.studentName;
+        const rollNumber = session.rollNumber;
+
+        if (!isValidRollNumber(rollNumber)) {
             return response.status(400).json({
                 error: ROLL_NUMBER_MESSAGE
             });
@@ -1631,8 +1683,8 @@ function createApp(options = {}) {
         });
         const complaint = {
             complaintId,
-            studentName: body.studentName.trim(),
-            rollNumber: normalizeRollNumber(body.rollNumber),
+            studentName,
+            rollNumber,
             category:
                 body.categoryCode === "other"
                     ? `Other - ${String(body.otherCategory || "").trim()}`
@@ -1910,8 +1962,13 @@ function createApp(options = {}) {
         const expectedUser = adminUsername.toLowerCase();
         const isValidPassword =
             password === adminPassword ||
-            password === "admin123" ||
-            password === "SmartCampus@2024!";
+            (
+                !isProduction &&
+                (
+                    password === "admin123" ||
+                    password === "SmartCampus@2024!"
+                )
+            );
 
         if (normalizedUser !== expectedUser || !isValidPassword) {
             return response.status(401).json({
@@ -1968,6 +2025,179 @@ function createApp(options = {}) {
             .map((row) => JSON.parse(row.complaint_json));
         response.json(complaints);
     });
+
+    app.get("/api/admin/students", requireAdmin, async (request, response) => {
+        const studentRows = await queryAll(
+            "SELECT roll_key, roll_number, student_name, created_at FROM students ORDER BY roll_number ASC",
+            []
+        );
+
+        const complaints = (await queryAll(
+            "SELECT complaint_json FROM complaints",
+            []
+        )).map((row) => JSON.parse(row.complaint_json));
+
+        const complaintCounts = new Map();
+        const fallbackNames = new Map();
+        const fallbackRolls = new Map();
+        for (const complaint of complaints) {
+            const key = normalizeRollKey(complaint.rollNumber || "");
+            if (!key) {
+                continue;
+            }
+            complaintCounts.set(key, (complaintCounts.get(key) || 0) + 1);
+            if (!fallbackNames.has(key)) {
+                fallbackNames.set(key, complaint.studentName || "Unknown student");
+                fallbackRolls.set(key, normalizeRollNumber(complaint.rollNumber));
+            }
+        }
+
+        const students = studentRows.map((student) => ({
+            rollNumber: student.roll_number,
+            studentName: student.student_name,
+            createdAt: Number(student.created_at),
+            complaintCount: complaintCounts.get(student.roll_key) || 0,
+            allowed: isValidRollNumber(student.roll_number),
+            hasAccount: true
+        }));
+
+        const knownKeys = new Set(studentRows.map((student) => student.roll_key));
+        for (const [key, count] of complaintCounts) {
+            if (knownKeys.has(key)) {
+                continue;
+            }
+
+            const rollNumber = fallbackRolls.get(key);
+            students.push({
+                rollNumber,
+                studentName: fallbackNames.get(key),
+                createdAt: null,
+                complaintCount: count,
+                allowed: isValidRollNumber(rollNumber),
+                hasAccount: false
+            });
+        }
+
+        students.sort((first, second) =>
+            first.rollNumber.localeCompare(second.rollNumber)
+        );
+
+        response.json(students);
+    });
+
+    app.patch(
+        "/api/admin/students/:rollNumber",
+        requireAdmin,
+        async (request, response) => {
+            const rollNumber = normalizeRollNumber(request.params.rollNumber || "");
+            const { password, studentName } = request.body || {};
+
+            if (!rollNumber) {
+                return response.status(400).json({
+                    error: "Provide the student roll number."
+                });
+            }
+
+            const name =
+                typeof studentName === "string" ? studentName.trim() : "";
+
+            if (
+                studentName !== undefined &&
+                (!name || name.length > 100)
+            ) {
+                return response.status(400).json({
+                    error: "Student name must be between 1 and 100 characters."
+                });
+            }
+
+            if (
+                password !== undefined &&
+                (typeof password !== "string" ||
+                    password.length < 8 ||
+                    password.length > 200)
+            ) {
+                return response.status(400).json({
+                    error: "Password must be between 8 and 200 characters."
+                });
+            }
+
+            const student = await queryOne(
+                "SELECT roll_key, roll_number, student_name, password_hash FROM students WHERE roll_key = ?",
+                [normalizeRollKey(rollNumber)]
+            );
+
+            if (!student) {
+                // An admin can create an account for a roll number that only
+                // appears in old complaints, but only inside the allowed range.
+                if (!name || password === undefined) {
+                    return response.status(404).json({
+                        error:
+                            "No student account found for this roll number. Provide a name and password to create one."
+                    });
+                }
+
+                if (!isValidRollNumber(rollNumber)) {
+                    return response.status(400).json({
+                        error: ROLL_NUMBER_MESSAGE
+                    });
+                }
+
+                const storedHash = hashPassword(password);
+                await queryRun(
+                    "INSERT INTO students (roll_key, roll_number, student_name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+                    [normalizeRollKey(rollNumber), rollNumber, name, storedHash, Date.now()]
+                );
+
+                const createdCount = await renameComplaintOwner(rollNumber, name);
+                return response.status(201).json({
+                    created: true,
+                    updated: true,
+                    rollNumber,
+                    studentName: name,
+                    passwordChanged: true,
+                    complaintsUpdated: createdCount
+                });
+            }
+
+            const updates = [];
+            const values = [];
+
+            if (password !== undefined) {
+                updates.push("password_hash = ?");
+                values.push(hashPassword(password));
+            }
+
+            if (studentName !== undefined) {
+                updates.push("student_name = ?");
+                values.push(name);
+            }
+
+            if (updates.length === 0) {
+                return response.status(400).json({
+                    error: "Provide a new password or student name."
+                });
+            }
+
+            values.push(student.roll_key);
+            await queryRun(
+                `UPDATE students SET ${updates.join(", ")} WHERE roll_key = ?`,
+                values
+            );
+
+            let complaintsUpdated = 0;
+            if (studentName !== undefined) {
+                complaintsUpdated = await renameComplaintOwner(rollNumber, name);
+            }
+
+            response.json({
+                updated: true,
+                rollNumber,
+                studentName: studentName !== undefined ? name : student.student_name,
+                passwordChanged: password !== undefined,
+                complaintsUpdated
+            });
+        }
+    );
 
     app.patch(
         "/api/admin/complaints/:complaintId",

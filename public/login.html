@@ -47,7 +47,7 @@
                 <div class="form-group">
                     <label>Roll Number</label>
                     <input type="text" id="studentRoll" placeholder="e.g. 25CSE38" autocomplete="username" maxlength="13" autocapitalize="characters" spellcheck="false">
-                    <small style="display:block; margin-top:6px; color: var(--text-2); font-size: 12px;">Format: 25CSE38 (year + branch + number)</small>
+                    <small style="display:block; margin-top:6px; color: var(--text-2); font-size: 12px;">Allowed rolls: 25CSE01 – 25CSE65 (e.g. 25CSE38)</small>
                 </div>
                 <div class="form-group">
                     <label>Password</label>
@@ -84,8 +84,8 @@
     <script src="theme.js"></script>
     <script>
         let registerMode = false;
-        const ROLL_NUMBER_PATTERN = /^(?:\d{2}|\d{4})[A-Za-z]{2,5}\d{1,4}$/;
-        const ROLL_NUMBER_HINT = 'Roll number must look like 25CSE38 (year + branch + number, no spaces, slashes or dots).';
+        const ROLL_NUMBER_PATTERN = /^25CSE(?:0[1-9]|[1-5]\d|6[0-5])$/;
+        const ROLL_NUMBER_HINT = 'Roll number must be between 25CSE01 and 25CSE65 (for example 25CSE38).';
         const studentRollInput = document.getElementById('studentRoll');
         studentRollInput.addEventListener('input', () => {
             const cleaned = studentRollInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
