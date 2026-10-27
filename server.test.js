@@ -32,7 +32,7 @@ test("database URL resolution accepts Supabase integration env names", () => {
 
     const fromPostgresUrl = resolveDatabaseUrl({ POSTGRES_URL: pooled });
     assert.match(fromPostgresUrl, /^postgres:\/\/postgres\.abcdefgh:secret@/);
-    assert.match(fromPostgresUrl, /sslmode=require/);
+    assert.match(fromPostgresUrl, /sslmode=no-verify/);
     assert.match(fromPostgresUrl, /pgbouncer=true/);
 
     assert.equal(
@@ -40,14 +40,14 @@ test("database URL resolution accepts Supabase integration env names", () => {
             DATABASE_URL: "postgres://primary@db.example.com:5432/postgres",
             POSTGRES_URL: pooled
         }),
-        "postgres://primary@db.example.com:5432/postgres?sslmode=require"
+        "postgres://primary@db.example.com:5432/postgres?sslmode=no-verify"
     );
 
     assert.equal(
         resolveDatabaseUrl({
             POSTGRES_URL_NON_POOLING: "postgres://fallback@db.example.com:5432/postgres"
         }),
-        "postgres://fallback@db.example.com:5432/postgres?sslmode=require"
+        "postgres://fallback@db.example.com:5432/postgres?sslmode=no-verify"
     );
 
     assert.equal(
@@ -55,6 +55,20 @@ test("database URL resolution accepts Supabase integration env names", () => {
             DATABASE_URL: "postgres://local@localhost:5432/postgres"
         }),
         "postgres://local@localhost:5432/postgres"
+    );
+
+    assert.match(
+        resolveDatabaseUrl({
+            DATABASE_URL: "postgres://u:p@db.example.com:5432/postgres?sslmode=require"
+        }),
+        /sslmode=no-verify/
+    );
+
+    assert.match(
+        resolveDatabaseUrl({
+            DATABASE_URL: "postgres://u:p@db.example.com:5432/postgres?sslmode=verify-full"
+        }),
+        /sslmode=verify-full/
     );
 
     assert.equal(resolveDatabaseUrl({}), undefined);

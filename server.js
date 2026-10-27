@@ -968,9 +968,16 @@ function ensureSslMode(connectionString) {
     try {
         const url = new URL(connectionString);
         const isLocal = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+        const mode = url.searchParams.get("sslmode");
 
-        if (!isLocal && !url.searchParams.has("sslmode")) {
-            url.searchParams.set("sslmode", "require");
+        // Supabase's pooler uses a self-signed certificate chain, so "require"
+        // still fails certificate verification in Node. Use no-verify for
+        // remote hosts unless a stricter mode was configured explicitly.
+        if (
+            !isLocal &&
+            (!mode || mode === "require" || mode === "prefer")
+        ) {
+            url.searchParams.set("sslmode", "no-verify");
         }
 
         return url.toString();

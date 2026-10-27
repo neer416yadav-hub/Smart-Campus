@@ -142,7 +142,7 @@ Deploy with **New Project → import the repository**. The defaults work, but yo
 - `ADMIN_USERNAME` = your admin login name
 - `ADMIN_PASSWORD` = a unique password of at least 12 characters
 
-If the Supabase integration was added from the Vercel Marketplace, the app also reads `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, or `POSTGRES_URL_NON_POOLING`, so `DATABASE_URL` does not have to be duplicated. For remote hosts, `sslmode=require` is added automatically when the connection string does not include it.
+If the Supabase integration was added from the Vercel Marketplace, the app also reads `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, or `POSTGRES_URL_NON_POOLING`, so `DATABASE_URL` does not have to be duplicated. For remote hosts, `sslmode=no-verify` is added automatically when the connection string does not ask for certificate verification, because the Supabase pooler uses a self-signed certificate chain.
 
 **Demo mode (no environment variables).** Vercel's filesystem is read-only apart from `/tmp`, so if `DATABASE_URL` is missing the app falls back to a temporary SQLite file in `/tmp` and starts with the default demo admin login (`admin` / `admin123`). That keeps the page reachable, but anything submitted is lost when the function instance recycles, and different instances do not share data. Use it only to preview the interface — add `DATABASE_URL` and a real `ADMIN_PASSWORD` before sharing the URL. `/api/health` reports `"database": "sqlite-temp"` and `"persistent": false` while demo mode is active.
 
