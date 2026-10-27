@@ -1184,11 +1184,26 @@ function createApp(options = {}) {
             if (normalizeRollKey(complaint.rollNumber || "") !== key) {
                 continue;
             }
-            if (complaint.studentName === studentName) {
+
+            let changed = false;
+
+            if (
+                isValidRollNumber(complaint.rollNumber) &&
+                complaint.rollNumber !== normalizeRollNumber(complaint.rollNumber)
+            ) {
+                complaint.rollNumber = normalizeRollNumber(complaint.rollNumber);
+                changed = true;
+            }
+
+            if (complaint.studentName !== studentName) {
+                complaint.studentName = studentName;
+                changed = true;
+            }
+
+            if (!changed) {
                 continue;
             }
 
-            complaint.studentName = studentName;
             await saveComplaint(complaint);
             updated += 1;
         }
